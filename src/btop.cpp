@@ -72,6 +72,7 @@ tab-size = 4
 
 #include "aitop_claude.hpp"
 #include "aitop_codex.hpp"
+#include "aitop_draw.hpp"
 #include "aitop_gemini.hpp"
 #include "aitop_shared.hpp"
 
@@ -516,14 +517,14 @@ namespace Runner {
 
 			output.clear();
 
-			//* Run collection for AI tool usage data
+			//* Run collection and drawing for AI tool usage data
 			try {
-				// Collect AI tool usage data
-				auto claude_stats = Claude::collect();
-				auto codex_stats = Codex::collect();
-				auto gemini_stats = Gemini::collect();
+				AiTool::AitopData data;
+				data.claude = Claude::collect();
+				data.codex = Codex::collect();
+				data.gemini = Gemini::collect();
 
-				// TODO: Drawing will be added in Task 7
+				output += AiDraw::drawAll(data, conf.force_redraw);
 			}
 			catch (const std::exception& e) {
 				Global::exit_error_msg = fmt::format("Exception in runner thread -> {}", e.what());
@@ -983,10 +984,7 @@ static auto configure_tty_mode(std::optional<bool> force_tty) {
 	}
 
 	Draw::calcSizes();
-
-	//? Print out box outlines
-	const bool term_sync = Config::getB("terminal_sync");
-	cout << (term_sync ? Term::sync_start : "") << Cpu::box << Mem::box << Net::box << Proc::box << (term_sync ? Term::sync_end : "") << flush;
+	AiDraw::calcSizes();
 
 
 	//? ------------------------------------------------ MAIN LOOP ----------------------------------------------------
@@ -1028,6 +1026,7 @@ static auto configure_tty_mode(std::optional<bool> force_tty) {
 			//? Trigger secondary thread to redraw if terminal has been resized
 			if (Global::resized) {
 				Draw::calcSizes();
+				AiDraw::calcSizes();
 				Draw::update_clock(true);
 				Global::resized = false;
 				if (Menu::active) Menu::process();

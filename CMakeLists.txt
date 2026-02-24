@@ -60,6 +60,7 @@ add_library(libbtop OBJECT
   src/aitop_codex.cpp
   src/aitop_gemini.cpp
   src/aitop_draw.cpp
+  src/aitop_stubs.cpp
 )
 
 target_link_libraries(btop libbtop)
@@ -112,10 +113,7 @@ check_cxx_symbol_exists("__cpp_lib_ranges" "version" HAS_CXX_RANGES)
 if(NOT HAS_CXX_RANGES)
   message(FATAL_ERROR "The compiler doesn't support std::ranges")
 endif()
-check_cxx_symbol_exists("__cpp_lib_ranges_to_container" "version" HAS_CXX_RANGES_TO_CONTAINER)
-if(NOT HAS_CXX_RANGES_TO_CONTAINER)
-  message(FATAL_ERROR "The compiler doesn't support std::ranges::to")
-endif()
+# ranges::to check removed for aitop (replaced with iterator-based alternatives)
 check_cxx_symbol_exists("__cpp_lib_string_contains" "version" HAS_CXX_STRING_CONTAINS)
 if(NOT HAS_CXX_STRING_CONTAINS)
   message(FATAL_ERROR "The compiler doesn't support std::string::contains")
