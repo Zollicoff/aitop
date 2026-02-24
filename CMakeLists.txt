@@ -59,6 +59,7 @@ add_library(libbtop OBJECT
   src/aitop_claude.cpp
   src/aitop_codex.cpp
   src/aitop_gemini.cpp
+  src/aitop_draw.cpp
 )
 
 target_link_libraries(btop libbtop)
