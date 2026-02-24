@@ -1,9 +1,10 @@
 /* aitop - AI Tool Usage Monitor
    Stub definitions for btop symbols that are no longer implemented
    by platform-specific collectors but are still referenced by
-   btop_draw.cpp, btop_menu.cpp, and btop_shared.cpp.
+   btop_draw.cpp (calcSizes), btop_menu.cpp, and btop_tools.cpp.
 
-   These will be removed entirely when the dead btop code is cleaned up (Task 9).
+   These provide empty/zero values for legacy btop namespace variables
+   and collect() functions that remain declared in btop_shared.hpp.
 */
 
 #include "btop_shared.hpp"
