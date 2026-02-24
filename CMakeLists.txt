@@ -29,7 +29,7 @@ set(CMAKE_COLOR_DIAGNOSTICS ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(BTOP_STATIC "Link btop statically" OFF)
-option(BTOP_GPU "Enable GPU support" ON)
+option(BTOP_GPU "Enable GPU support (unused in aitop)" OFF)
 cmake_dependent_option(BTOP_RSMI_STATIC "Link statically to ROCm SMI" OFF "BTOP_GPU" OFF)
 
 # Enable LTO in release builds by default
@@ -56,6 +56,9 @@ add_library(libbtop OBJECT
   src/btop_shared.cpp
   src/btop_theme.cpp
   src/btop_tools.cpp
+  src/aitop_claude.cpp
+  src/aitop_codex.cpp
+  src/aitop_gemini.cpp
 )
 
 target_link_libraries(btop libbtop)
@@ -66,22 +69,8 @@ if(BTOP_LTO)
   set_target_properties(libbtop PROPERTIES INTERPROCEDURAL_OPTIMIZATION ON)
 endif()
 
-if(APPLE)
-  target_sources(libbtop PRIVATE src/osx/btop_collect.cpp src/osx/sensors.cpp src/osx/smc.cpp)
-elseif(CMAKE_SYSTEM_NAME STREQUAL "FreeBSD" OR CMAKE_SYSTEM_NAME STREQUAL "MidnightBSD")
-  target_sources(libbtop PRIVATE src/freebsd/btop_collect.cpp)
-elseif(CMAKE_SYSTEM_NAME STREQUAL "OpenBSD")
-  target_sources(libbtop PRIVATE src/openbsd/btop_collect.cpp src/openbsd/sysctlbyname.cpp)
-elseif(CMAKE_SYSTEM_NAME STREQUAL "NetBSD")
-  target_sources(libbtop PRIVATE src/netbsd/btop_collect.cpp)
-elseif(LINUX)
-  target_sources(libbtop PRIVATE src/linux/btop_collect.cpp)
-  if(BTOP_GPU)
-    add_subdirectory(src/linux/intel_gpu_top)
-  endif()
-else()
-  message(FATAL_ERROR "${CMAKE_SYSTEM_NAME} is not supported")
-endif()
+# Platform-specific collectors removed for aitop
+# AI tool parsers (aitop_claude, aitop_codex, aitop_gemini) are used instead
 
 # Generate build info
 execute_process(
@@ -160,98 +149,16 @@ set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 target_link_libraries(libbtop Threads::Threads)
 
-# Enable GPU support
-if(LINUX AND BTOP_GPU)
-  target_compile_definitions(libbtop PUBLIC GPU_SUPPORT)
-
-  if(BTOP_RSMI_STATIC)
-    # ROCm doesn't properly add it's folders to the module path if `CMAKE_MODULE_PATH` is already
-    # set
-    # We could also manually append ROCm's path here
-    set(_CMAKE_MODULE_PATH CMAKE_MODULE_PATH)
-    unset(CMAKE_MODULE_PATH)
-
-    # NOTE: This might be problematic in the future if other sub projects depend on this or if
-    # btop starts producing libraries
-    # Build a static ROCm library
-    set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
-
-    add_subdirectory(lib/rocm_smi_lib EXCLUDE_FROM_ALL)
-
-    add_library(ROCm INTERFACE)
-    # Export ROCm's properties to a target
-    target_compile_definitions(ROCm INTERFACE RSMI_STATIC)
-    target_include_directories(ROCm INTERFACE lib/rocm_smi_lib/include)
-    target_link_libraries(ROCm INTERFACE rocm_smi64)
-
-    set(CMAKE_MODULE_PATH _CMAKE_MODULE_PATH)
-
-    target_link_libraries(libbtop ROCm)
-  endif()
-  if(NOT BTOP_STATIC)
-    target_link_libraries(libbtop ${CMAKE_DL_LIBS})
-  endif()
-endif()
+# GPU support removed for aitop
 
 if(BTOP_STATIC)
   target_compile_definitions(libbtop PUBLIC STATIC_BUILD)
   target_link_options(libbtop PUBLIC -static LINKER:--fatal-warnings)
 endif()
 
-# Enable GPU support on Apple Silicon
-if(APPLE AND BTOP_GPU)
-  target_compile_definitions(libbtop PUBLIC GPU_SUPPORT)
-endif()
+# Apple GPU support removed for aitop
 
-# Other platform dependent flags
-if(APPLE)
-  target_link_libraries(libbtop
-    $<LINK_LIBRARY:FRAMEWORK,CoreFoundation> $<LINK_LIBRARY:FRAMEWORK,IOKit>
-  )
-  if(BTOP_GPU)
-    find_library(IOREPORT_LIB IOReport)
-    if(IOREPORT_LIB)
-      target_link_libraries(libbtop ${IOREPORT_LIB})
-    endif()
-  endif()
-elseif(CMAKE_SYSTEM_NAME STREQUAL "FreeBSD" OR CMAKE_SYSTEM_NAME STREQUAL "MidnightBSD")
-  # Avoid version mismatch for libstdc++ when a specific version of GCC is installed and not the
-  # default one since all use the default ones RPATH
-  if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    string(REGEX MATCH "^[0-9]+" GCC_VERSION_MAJOR "${CMAKE_CXX_COMPILER_VERSION}")
-    set_target_properties(btop PROPERTIES
-      INSTALL_RPATH "/usr/local/lib/gcc${GCC_VERSION_MAJOR}"
-      BUILD_WITH_INSTALL_RPATH TRUE
-    )
-
-    # The gcc compiler wrapper doesn't add '--eh-frame-hdr' on FreeBSD with static builds
-    # https://bugs.freebsd.org/bugzilla/show_bug.cgi?id=278551
-    if(BTOP_STATIC)
-      target_link_options(libbtop PUBLIC LINKER:--eh-frame-hdr)
-    endif()
-  endif()
-
-  find_package(devstat REQUIRED)
-  find_package(kvm REQUIRED)
-  target_link_libraries(libbtop devstat::devstat kvm::kvm)
-  if(BTOP_STATIC)
-    find_package(elf REQUIRED)
-    target_link_libraries(libbtop elf::elf)
-  endif()
-elseif(CMAKE_SYSTEM_NAME STREQUAL "OpenBSD")
-  if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    target_compile_options(libbtop PUBLIC -static-libstdc++)
-  endif()
-  find_package(kvm REQUIRED)
-  target_link_libraries(libbtop kvm::kvm)
-elseif(CMAKE_SYSTEM_NAME STREQUAL "NetBSD")
-  if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    target_compile_options(libbtop PUBLIC -static-libstdc++)
-  endif()
-  find_package(kvm REQUIRED)
-  find_package(proplib REQUIRED)
-  target_link_libraries(libbtop kvm::kvm proplib::proplib)
-endif()
+# Platform-dependent library linking removed for aitop
 
 # Check if lowdown is installed
 find_program(LOWDOWN_EXECUTABLE lowdown)

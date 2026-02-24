@@ -70,6 +70,11 @@ tab-size = 4
 #include "btop_theme.hpp"
 #include "btop_tools.hpp"
 
+#include "aitop_claude.hpp"
+#include "aitop_codex.hpp"
+#include "aitop_gemini.hpp"
+#include "aitop_shared.hpp"
+
 using std::atomic;
 using std::cout;
 using std::flush;
@@ -511,145 +516,14 @@ namespace Runner {
 
 			output.clear();
 
-			//* Run collection and draw functions for all boxes
+			//* Run collection for AI tool usage data
 			try {
-#if defined(GPU_SUPPORT)
-				//? GPU data collection
-				const bool gpu_in_cpu_panel = Gpu::gpu_names.size() > 0 and (
-					Config::getS("cpu_graph_lower").starts_with("gpu-")
-					or (Config::getS("cpu_graph_lower") == "Auto")
-					or Config::getS("cpu_graph_upper").starts_with("gpu-")
-					or (Gpu::shown == 0 and Config::getS("show_gpu_info") != "Off")
-				);
+				// Collect AI tool usage data
+				auto claude_stats = Claude::collect();
+				auto codex_stats = Codex::collect();
+				auto gemini_stats = Gemini::collect();
 
-				vector<unsigned int> gpu_panels = {};
-				for (auto& box : conf.boxes)
-					if (box.starts_with("gpu"))
-						gpu_panels.push_back(box.back()-'0');
-
-				vector<Gpu::gpu_info> gpus;
-				if (gpu_in_cpu_panel or not gpu_panels.empty()) {
-					if (Global::debug) debug_timer("gpu", collect_begin);
-					gpus = Gpu::collect(conf.no_update);
-					if (Global::debug) debug_timer("gpu", collect_done);
-				}
-				auto& gpus_ref = gpus;
-#endif // GPU_SUPPORT
-
-				//? CPU
-				if (v_contains(conf.boxes, "cpu")) {
-					try {
-						if (Global::debug) debug_timer("cpu", collect_begin);
-
-						//? Start collect
-						auto cpu = Cpu::collect(conf.no_update);
-
-						if (coreNum_reset) {
-							coreNum_reset = false;
-							Cpu::core_mapping = Cpu::get_core_mapping();
-							Global::resized = true;
-							Input::interrupt();
-							continue;
-						}
-
-						if (Global::debug) debug_timer("cpu", draw_begin);
-
-						//? Draw box
-						if (not pause_output) {
-							output += Cpu::draw(
-								cpu,
-#if defined(GPU_SUPPORT)
-								gpus_ref,
-#endif // GPU_SUPPORT
-								conf.force_redraw,
-								conf.no_update
-							);
-						}
-
-						if (Global::debug) debug_timer("cpu", draw_done);
-					}
-					catch (const std::exception& e) {
-						throw std::runtime_error("Cpu:: -> " + string{e.what()});
-					}
-				}
-			#ifdef GPU_SUPPORT
-				//? GPU
-				if (not gpu_panels.empty() and not gpus_ref.empty()) {
-					try {
-						if (Global::debug) debug_timer("gpu", draw_begin_only);
-
-						//? Draw box
-						if (not pause_output)
-							for (unsigned long i = 0; i < gpu_panels.size(); ++i)
-								output += Gpu::draw(gpus_ref[gpu_panels[i]], i, conf.force_redraw, conf.no_update);
-
-						if (Global::debug) debug_timer("gpu", draw_done);
-					}
-					catch (const std::exception& e) {
-                        throw std::runtime_error("Gpu:: -> " + string{e.what()});
-					}
-				}
-			#endif
-				//? MEM
-				if (v_contains(conf.boxes, "mem")) {
-					try {
-						if (Global::debug) debug_timer("mem", collect_begin);
-
-						//? Start collect
-						auto mem = Mem::collect(conf.no_update);
-
-						if (Global::debug) debug_timer("mem", draw_begin);
-
-						//? Draw box
-						if (not pause_output) output += Mem::draw(mem, conf.force_redraw, conf.no_update);
-
-						if (Global::debug) debug_timer("mem", draw_done);
-					}
-					catch (const std::exception& e) {
-						throw std::runtime_error("Mem:: -> " + string{e.what()});
-					}
-				}
-
-				//? NET
-				if (v_contains(conf.boxes, "net")) {
-					try {
-						if (Global::debug) debug_timer("net", collect_begin);
-
-						//? Start collect
-						auto net = Net::collect(conf.no_update);
-
-						if (Global::debug) debug_timer("net", draw_begin);
-
-						//? Draw box
-						if (not pause_output) output += Net::draw(net, conf.force_redraw, conf.no_update);
-
-						if (Global::debug) debug_timer("net", draw_done);
-					}
-					catch (const std::exception& e) {
-						throw std::runtime_error("Net:: -> " + string{e.what()});
-					}
-				}
-
-				//? PROC
-				if (v_contains(conf.boxes, "proc")) {
-					try {
-						if (Global::debug) debug_timer("proc", collect_begin);
-
-						//? Start collect
-						auto proc = Proc::collect(conf.no_update);
-
-						if (Global::debug) debug_timer("proc", draw_begin);
-
-						//? Draw box
-						if (not pause_output) output += Proc::draw(proc, conf.force_redraw, conf.no_update);
-
-						if (Global::debug) debug_timer("proc", draw_done);
-					}
-					catch (const std::exception& e) {
-						throw std::runtime_error("Proc:: -> " + string{e.what()});
-					}
-				}
-
+				// TODO: Drawing will be added in Task 7
 			}
 			catch (const std::exception& e) {
 				Global::exit_error_msg = fmt::format("Exception in runner thread -> {}", e.what());
