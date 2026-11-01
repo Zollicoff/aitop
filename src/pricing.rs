@@ -116,7 +116,7 @@ impl PriceTable {
             }
         }
         // Fall back to the longest table key that is a dash-separated
-        // prefix, e.g. `gemini-2.5-pro-preview-06-05` -> `gemini-2.5-pro`.
+        // prefix, e.g. `gpt-5-codex-2025-09-15-preview` -> `gpt-5-codex`.
         let base = strip_date(&n);
         self.models
             .iter()
@@ -173,18 +173,18 @@ pub fn cache_path() -> PathBuf {
 }
 
 /// Convert LiteLLM's `model_prices_and_context_window.json` into our format,
-/// keeping only the Anthropic, OpenAI and Google models these tools use.
+/// keeping only the Anthropic and OpenAI models these tools use.
 pub fn from_litellm(json: &str, as_of: &str) -> Result<PriceFile> {
     let all: BTreeMap<String, serde_json::Value> = serde_json::from_str(json).context("not a LiteLLM price file")?;
     let mut models = BTreeMap::new();
     let per_m = |v: &serde_json::Value, k: &str| v.get(k).and_then(|x| x.as_f64()).map(|x| round(x * 1e6));
     for (key, v) in &all {
-        let name = match key.strip_prefix("gemini/") {
-            Some(rest) => rest,
-            None if key.contains('/') || key.contains('.') && key.starts_with("anthropic.") => continue,
-            None => key.as_str(),
-        };
-        let wanted = ["claude-", "gpt-", "o1", "o3", "o4", "codex-", "gemini-"].iter().any(|p| name.starts_with(p));
+        // Provider-prefixed duplicates (`bedrock/…`, `azure/…`) are skipped.
+        if key.contains('/') {
+            continue;
+        }
+        let name = key.as_str();
+        let wanted = ["claude-", "gpt-", "o1", "o3", "o4", "codex-"].iter().any(|p| name.starts_with(p));
         let mode = v.get("mode").and_then(|m| m.as_str()).unwrap_or("chat");
         if !wanted || !(mode == "chat" || mode == "responses") {
             continue;
@@ -203,10 +203,6 @@ pub fn from_litellm(json: &str, as_of: &str) -> Result<PriceFile> {
             cache_read_above_200k: per_m(v, "cache_read_input_token_cost_above_200k_tokens"),
             fast_multiplier: None,
         };
-        // Prefer the un-prefixed entry when both exist.
-        if key.starts_with("gemini/") && models.contains_key(name) {
-            continue;
-        }
         models.insert(name.to_string(), price);
     }
     if models.is_empty() {
@@ -258,15 +254,7 @@ mod tests {
     #[test]
     fn builtin_has_current_models() {
         let t = table();
-        for m in [
-            "claude-opus-5-5",
-            "claude-sonnet-4-5",
-            "claude-haiku-4-5",
-            "gpt-5-codex",
-            "gpt-5.1-codex",
-            "gemini-2.5-pro",
-            "gemini-2.5-flash",
-        ] {
+        for m in ["claude-opus-5-5", "claude-sonnet-4-5", "claude-haiku-4-5", "gpt-5-codex", "gpt-5.1-codex"] {
             assert!(t.lookup(m).is_some(), "missing {m}");
         }
     }
@@ -278,8 +266,8 @@ mod tests {
         assert_eq!(t.lookup("claude-opus-4-1-20250805").unwrap().0, "claude-opus-4-1");
         assert_eq!(t.lookup("anthropic/claude-sonnet-4-5").unwrap().0, "claude-sonnet-4-5");
         assert_eq!(t.lookup("claude-sonnet-4-5[1m]").unwrap().0, "claude-sonnet-4-5");
-        assert_eq!(t.lookup("models/gemini-2.5-pro").unwrap().0, "gemini-2.5-pro");
-        assert_eq!(t.lookup("gemini-2.5-pro-preview-06-05").unwrap().0, "gemini-2.5-pro");
+        assert_eq!(t.lookup("openai/gpt-5.1-codex").unwrap().0, "gpt-5.1-codex");
+        assert_eq!(t.lookup("gpt-5.1-codex-max-preview").unwrap().0, "gpt-5.1-codex-max");
         assert!(t.lookup("<synthetic>").is_none());
         assert!(t.lookup("totally-unknown").is_none());
         // a dotted version must not fall back to an older family member
@@ -337,6 +325,7 @@ mod tests {
         let j = r#"{
           "claude-opus-5-5": {"input_cost_per_token": 4e-6, "output_cost_per_token": 2e-5, "cache_read_input_token_cost": 2e-7, "mode": "chat", "litellm_provider": "anthropic"},
           "gemini/gemini-3-pro-preview": {"input_cost_per_token": 2e-6, "output_cost_per_token": 1.2e-5, "mode": "chat"},
+          "gpt-5.3-codex": {"input_cost_per_token": 1.75e-6, "output_cost_per_token": 1.4e-5, "mode": "responses"},
           "bedrock/whatever": {"input_cost_per_token": 1e-6, "output_cost_per_token": 1e-6},
           "text-embedding-3": {"input_cost_per_token": 1e-6, "output_cost_per_token": 0, "mode": "embedding"},
           "sample_spec": {}
@@ -344,6 +333,7 @@ mod tests {
         let f = from_litellm(j, "2026-01-01").unwrap();
         assert_eq!(f.models.len(), 2);
         assert_eq!(f.models["claude-opus-5-5"].cache_read, Some(0.2));
-        assert_eq!(f.models["gemini-3-pro-preview"].output, 12.0);
+        assert_eq!(f.models["gpt-5.3-codex"].output, 14.0);
+        assert!(!f.models.contains_key("gemini-3-pro-preview"));
     }
 }

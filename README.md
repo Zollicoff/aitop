@@ -1,6 +1,6 @@
 # aitop
 
-**A btop-style terminal dashboard for AI coding tool usage.** See what Claude Code, Codex CLI and Gemini CLI are costing you, per project, model and session, live, without API keys and without sending anything anywhere.
+**A btop-style terminal dashboard for AI coding tool usage.** See what Claude Code and Codex CLI are costing you, per project, model and session, live, without API keys and without sending anything anywhere.
 
 ![aitop](docs/screenshot.png)
 
@@ -8,9 +8,9 @@
 
 ## Features
 
-- **Three tools, one screen.** Claude Code, OpenAI Codex CLI and Google Gemini CLI, each in its own panel, with totals in the header.
+- **Both tools, one screen.** Claude Code and OpenAI Codex CLI, each in its own panel, with totals in the header.
 - **Live.** Logs are re-read incrementally every 2 s, so a running session shows up as it happens (a 500 MB history scans in under a second, rescans take milliseconds).
-- **Costs that match the models you use.** A built-in price table covering Claude 3 → 5.x, GPT-5.x / Codex and Gemini 2 → 3.x, including cache reads, 5-minute and 1-hour cache writes, long-context tiers and Claude fast mode. Refresh it any time with `aitop pricing update`.
+- **Costs that match the models you use.** A built-in price table covering Claude 3 → 5.x and GPT-5.x / Codex, including cache reads, 5-minute and 1-hour cache writes, long-context tiers and Claude fast mode. Refresh it any time with `aitop pricing update`.
 - **Projects, models, sessions.** Usage is grouped by git repository (subdirectories and worktrees are folded into their repo), by model, or by session, sortable by cost, tokens, recency or name.
 - **Limits.** Claude's current 5-hour window with burn rate and projected spend; Codex's 5-hour and weekly rate-limit usage straight from its logs.
 - **History that outlives the logs.** Claude Code deletes transcripts after 30 days; aitop keeps a compact copy of every usage record in `~/.local/share/aitop/history.jsonl`, so "all time" really means all time.
@@ -72,7 +72,6 @@ Everything is read from files the tools already write on your machine:
 | --- | --- | --- |
 | Claude Code | `~/.claude/projects/**/*.jsonl` (also `~/.config/claude/projects`, or `$CLAUDE_CONFIG_DIR`) | per-response token usage, model, cwd, session; sub-agent transcripts included |
 | Codex CLI | `~/.codex/sessions/**/rollout-*.jsonl` and `archived_sessions` (or `$CODEX_HOME`) | cumulative token counts per session, model, cwd, rate-limit snapshots |
-| Gemini CLI | `~/.gemini/tmp/*/chats/session-*.json` | per-response token counts and model |
 
 aitop never sends your data anywhere. The only network request it can make is `aitop pricing update`, which downloads the public [LiteLLM price list](https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json).
 
@@ -101,7 +100,7 @@ refresh_seconds = 2.0
 default_range = "today"     # today | week | month | all
 history = true              # keep ~/.local/share/aitop/history.jsonl
 active_minutes = 5          # "active" = produced output in the last N minutes
-hide_missing = false        # hide panels for tools that aren't installed
+hide_missing = false        # hide the panel of a tool that isn't installed
 
 [paths]                     # override log locations
 claude = ["~/.claude/projects"]

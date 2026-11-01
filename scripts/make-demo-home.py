@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-"""Create a fake home directory with realistic Claude Code, Codex CLI and
-Gemini CLI logs, for trying aitop or taking screenshots:
+"""Create a fake home directory with realistic Claude Code and Codex CLI
+logs, for trying aitop or taking screenshots:
 
     python3 scripts/make-demo-home.py /tmp/aitop-demo
     HOME=/tmp/aitop-demo aitop --no-history
 """
 
-import hashlib
 import json
 import os
 import random
@@ -122,29 +121,5 @@ for name, weight, model in [("api-server", 1.0, "gpt-5.3-codex"), ("data-pipelin
         with open(os.path.join(day, f"rollout-{start.strftime('%Y-%m-%dT%H-%M-%S')}-{sid}.jsonl"), "w") as f:
             f.writelines(json.dumps(l) + "\n" for l in lines)
 
-# ── Gemini CLI ─────────────────────────────────────────────────────────────
-for name, model in [("research-notes", "gemini-2.5-pro"), ("webapp", "gemini-3-flash-preview")]:
-    cwd = repo(name)
-    chats = os.path.join(home, ".gemini", "tmp", hashlib.sha256(cwd.encode()).hexdigest(), "chats")
-    os.makedirs(chats, exist_ok=True)
-    for start in sessions(14, 1):
-        sid = str(uuid.uuid4())
-        t = start
-        msgs = []
-        ctx = 8000
-        for i in range(random.randint(3, 20)):
-            t += timedelta(seconds=random.uniform(10, 60))
-            if t > now:
-                break
-            ctx += random.randint(500, 3000)
-            msgs.append({"id": f"u{i}", "timestamp": iso(t), "type": "user", "content": "…"})
-            out = random.randint(100, 2500)
-            th = random.randint(0, 800)
-            cached = int(ctx * 0.6)
-            msgs.append({"id": f"g{i}", "timestamp": iso(t), "type": "gemini", "content": "…", "model": model,
-                         "tokens": {"input": ctx, "output": out, "cached": cached, "thoughts": th, "tool": 0, "total": ctx + out + th}})
-        doc = {"sessionId": sid, "projectHash": os.path.basename(os.path.dirname(chats)), "startTime": iso(start), "lastUpdated": iso(t), "messages": msgs}
-        with open(os.path.join(chats, f"session-{start.strftime('%Y-%m-%dT%H-%M')}-{sid[:8]}.json"), "w") as f:
-            json.dump(doc, f)
 
 print(home)

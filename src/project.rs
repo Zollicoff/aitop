@@ -5,22 +5,15 @@
 //! (including Claude Code's `.claude/worktrees/*`) are folded into the main
 //! repository.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-
-use sha2::{Digest, Sha256};
 
 use crate::event::Interner;
 
 #[derive(Default)]
 pub struct ProjectResolver {
     cache: HashMap<String, (Arc<str>, Arc<str>)>,
-    /// Every path seen so far; candidates for reversing Gemini's hashed dirs.
-    known: HashSet<String>,
-    hashes: HashMap<String, String>,
-    hashed_count: usize,
-    home_indexed: bool,
     home: Option<PathBuf>,
 }
 
@@ -38,36 +31,9 @@ impl ProjectResolver {
         let root = git_root(Path::new(&cwd), self.home.as_deref()).unwrap_or_else(|| PathBuf::from(&cwd));
         let root_s = root.to_string_lossy().to_string();
         let name = display_name(&root, self.home.as_deref());
-        self.known.insert(cwd.clone());
-        self.known.insert(root_s.clone());
         let v = (interner.get(&name), interner.get(&root_s));
         self.cache.insert(cwd, v.clone());
         v
-    }
-
-    /// Gemini CLI names its per-project directories after the SHA-256 of the
-    /// project path. Try to find which known directory produced `hash`.
-    pub fn reverse_gemini_hash(&mut self, hash: &str) -> Option<String> {
-        if self.hashed_count != self.known.len() {
-            for p in &self.known {
-                self.hashes.entry(sha256_hex(p)).or_insert_with(|| p.clone());
-            }
-            self.hashed_count = self.known.len();
-        }
-        if let Some(p) = self.hashes.get(hash) {
-            return Some(p.clone());
-        }
-        if !self.home_indexed {
-            self.home_indexed = true;
-            if let Some(home) = self.home.clone() {
-                for p in candidate_dirs(&home) {
-                    let s = p.to_string_lossy().to_string();
-                    self.hashes.entry(sha256_hex(&s)).or_insert(s);
-                }
-            }
-            return self.hashes.get(hash).cloned();
-        }
-        None
     }
 }
 
@@ -75,11 +41,6 @@ fn normalize(p: &str) -> String {
     let t = p.trim();
     let t = if t.len() > 1 { t.trim_end_matches(['/', '\\']) } else { t };
     t.to_string()
-}
-
-pub fn sha256_hex(s: &str) -> String {
-    let d = Sha256::digest(s.as_bytes());
-    d.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 /// Walk up from `dir` looking for `.git`. Never treats the home directory
@@ -118,35 +79,6 @@ fn display_name(root: &Path, home: Option<&Path>) -> String {
     }
 }
 
-/// Directories up to two levels below home (skipping hidden ones), used to
-/// reverse Gemini project hashes when the project was never seen elsewhere.
-fn candidate_dirs(home: &Path) -> Vec<PathBuf> {
-    let mut out = vec![home.to_path_buf()];
-    let mut level = vec![home.to_path_buf()];
-    for _ in 0..2 {
-        let mut next = Vec::new();
-        for d in &level {
-            let Ok(rd) = std::fs::read_dir(d) else { continue };
-            for e in rd.flatten() {
-                let name = e.file_name();
-                let name = name.to_string_lossy();
-                if name.starts_with('.') || name == "node_modules" || name == "Library" {
-                    continue;
-                }
-                if e.file_type().map(|t| t.is_dir()).unwrap_or(false) {
-                    next.push(e.path());
-                    if out.len() + next.len() > 5000 {
-                        break;
-                    }
-                }
-            }
-        }
-        out.extend(next.iter().cloned());
-        level = next;
-    }
-    out
-}
-
 /// Claude Code encodes project paths as directory names by replacing `/`
 /// (and `.`) with `-`. The encoding is lossy, so this is only a fallback.
 pub fn decode_claude_dir(name: &str) -> String {
@@ -177,15 +109,6 @@ mod tests {
         // non-existent dirs fall back to their basename
         let (name, _) = r.resolve("/does/not/exist/proj", &mut i);
         assert_eq!(&*name, "proj");
-    }
-
-    #[test]
-    fn reverses_gemini_hash() {
-        let mut r = ProjectResolver::new();
-        let mut i = Interner::default();
-        r.resolve("/no/such/place/alpha", &mut i);
-        let h = sha256_hex("/no/such/place/alpha");
-        assert_eq!(r.reverse_gemini_hash(&h).as_deref(), Some("/no/such/place/alpha"));
     }
 
     #[test]

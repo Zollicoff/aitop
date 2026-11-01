@@ -69,7 +69,6 @@ pub fn accent(t: Tool) -> Color {
     match t {
         Tool::Claude => rgb(0xe0, 0x8a, 0x5f),
         Tool::Codex => rgb(0x4c, 0xc3, 0x8a),
-        Tool::Gemini => rgb(0x6f, 0x9c, 0xf6),
     }
 }
 

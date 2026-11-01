@@ -38,7 +38,6 @@ pub struct Config {
 pub struct PathsConfig {
     pub claude: Vec<PathBuf>,
     pub codex: Vec<PathBuf>,
-    pub gemini: Vec<PathBuf>,
 }
 
 impl Default for Config {
@@ -92,16 +91,6 @@ impl Config {
         }
         let base = std::env::var_os("CODEX_HOME").map(PathBuf::from).unwrap_or_else(|| home().join(".codex"));
         vec![base.join("sessions"), base.join("archived_sessions")]
-    }
-
-    pub fn gemini_roots(&self) -> Vec<PathBuf> {
-        if !self.paths.gemini.is_empty() {
-            return self.paths.gemini.iter().map(|p| expand(p)).collect();
-        }
-        let base = std::env::var_os("GEMINI_CLI_HOME")
-            .map(|p| PathBuf::from(p).join(".gemini"))
-            .unwrap_or_else(|| home().join(".gemini"));
-        vec![base.join("tmp")]
     }
 }
 
@@ -173,7 +162,6 @@ hide_missing = false
 # [paths]
 # claude = ["~/.claude/projects", "~/.config/claude/projects"]
 # codex  = ["~/.codex/sessions", "~/.codex/archived_sessions"]
-# gemini = ["~/.gemini/tmp"]
 
 # Override or add model prices, in USD per million tokens.
 # [pricing."my-custom-model"]

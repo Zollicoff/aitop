@@ -284,7 +284,7 @@ fn draw_stats(f: &mut Frame, area: Rect, app: &App, tool: Tool, ts: &ToolSummary
             val(format::thousands(ts.sessions as u64)),
             Span::styled(" · ", dim),
             val(format::thousands(ts.messages)),
-            Span::styled(if tool == Tool::Gemini { " requests" } else { " responses" }, dim),
+            Span::styled(" responses", dim),
         ],
     ));
     let status = match ts.last_ts {
@@ -352,18 +352,6 @@ fn draw_stats(f: &mut Frame, area: Rect, app: &App, tool: Tool, ts: &ToolSummary
                         vec![Span::styled(format!("limits as of {} ago", format::duration(now - l.ts)), dim)],
                     ));
                 }
-            }
-        }
-        Tool::Gemini => {
-            if ts.today_messages > 0 {
-                lines.push(kv(
-                    "Today",
-                    vec![
-                        val(format::thousands(ts.today_messages)),
-                        Span::styled(" requests · ", dim),
-                        val(format::cost(ts.today_cost)),
-                    ],
-                ));
             }
         }
     }

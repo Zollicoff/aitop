@@ -27,7 +27,7 @@ use config::{tilde, Config};
 use event::Tool;
 
 #[derive(Parser)]
-#[command(name = "aitop", version, about = "Usage and cost dashboard for Claude Code, Codex CLI and Gemini CLI")]
+#[command(name = "aitop", version, about = "Usage and cost dashboard for Claude Code and Codex CLI")]
 struct Cli {
     #[command(subcommand)]
     cmd: Option<Cmd>,
@@ -91,7 +91,6 @@ enum PricingCmd {
 enum ToolArg {
     Claude,
     Codex,
-    Gemini,
 }
 
 impl From<ToolArg> for Tool {
@@ -99,7 +98,6 @@ impl From<ToolArg> for Tool {
         match t {
             ToolArg::Claude => Tool::Claude,
             ToolArg::Codex => Tool::Codex,
-            ToolArg::Gemini => Tool::Gemini,
         }
     }
 }

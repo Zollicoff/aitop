@@ -11,17 +11,15 @@ use serde::{Deserialize, Serialize};
 pub enum Tool {
     Claude,
     Codex,
-    Gemini,
 }
 
 impl Tool {
-    pub const ALL: [Tool; 3] = [Tool::Claude, Tool::Codex, Tool::Gemini];
+    pub const ALL: [Tool; 2] = [Tool::Claude, Tool::Codex];
 
     pub fn name(self) -> &'static str {
         match self {
             Tool::Claude => "Claude Code",
             Tool::Codex => "Codex",
-            Tool::Gemini => "Gemini CLI",
         }
     }
 
@@ -29,7 +27,6 @@ impl Tool {
         match self {
             Tool::Claude => "claude",
             Tool::Codex => "codex",
-            Tool::Gemini => "gemini",
         }
     }
 

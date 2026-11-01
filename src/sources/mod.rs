@@ -4,7 +4,6 @@
 
 pub mod claude;
 pub mod codex;
-pub mod gemini;
 
 use std::fs::File;
 use std::io::{BufRead, BufReader, Seek, SeekFrom};

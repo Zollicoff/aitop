@@ -12,7 +12,6 @@ use crate::pricing::{Price, PriceTable};
 use crate::project::ProjectResolver;
 use crate::sources::claude::ClaudeSource;
 use crate::sources::codex::{CodexSource, RateLimits};
-use crate::sources::gemini::GeminiSource;
 use crate::sources::{Ctx, Source, SourceStatus};
 use crate::store::Store;
 
@@ -38,7 +37,6 @@ pub type Shared = Arc<RwLock<Dataset>>;
 pub struct Collector {
     claude: ClaudeSource,
     codex: CodexSource,
-    gemini: GeminiSource,
     interner: Interner,
     projects: ProjectResolver,
     pricing: PriceTable,
@@ -58,14 +56,12 @@ impl Collector {
             status: vec![
                 SourceStatus::new(Tool::Claude, &cfg.claude_roots()),
                 SourceStatus::new(Tool::Codex, &cfg.codex_roots()),
-                SourceStatus::new(Tool::Gemini, &cfg.gemini_roots()),
             ],
             ..Default::default()
         };
         Collector {
             claude: ClaudeSource::new(cfg.claude_roots()),
             codex: CodexSource::new(cfg.codex_roots()),
-            gemini: GeminiSource::new(cfg.gemini_roots()),
             interner: Interner::default(),
             projects: ProjectResolver::new(),
             pricing,
@@ -85,12 +81,6 @@ impl Collector {
         let Some(store) = &self.store else { return };
         match store.load(&mut self.interner) {
             Ok(events) => {
-                // Make sure history projects help resolve Gemini hashes too.
-                for e in &events {
-                    if e.project_path.starts_with('/') {
-                        self.projects.resolve(&e.project_path, &mut self.interner);
-                    }
-                }
                 self.merge(events, false);
             }
             Err(e) => self.data.write().unwrap().history_error = Some(e.to_string()),
@@ -104,10 +94,9 @@ impl Collector {
         let mut ctx = Ctx { interner: &mut self.interner, projects: &mut self.projects };
         let st_claude = self.claude.scan(&mut ctx, &mut events);
         let st_codex = self.codex.scan(&mut ctx, &mut events);
-        let st_gemini = self.gemini.scan(&mut ctx, &mut events);
         let changed = self.merge(events, true);
         let mut d = self.data.write().unwrap();
-        d.status = vec![st_claude, st_codex, st_gemini];
+        d.status = vec![st_claude, st_codex];
         if d.codex_limits != self.codex.limits {
             d.codex_limits = self.codex.limits.clone();
             d.version += 1;
@@ -238,7 +227,6 @@ mod tests {
             paths: crate::config::PathsConfig {
                 claude: vec![dir.path().join("claude")],
                 codex: vec![dir.path().join("none")],
-                gemini: vec![dir.path().join("none")],
             },
             ..Default::default()
         };
