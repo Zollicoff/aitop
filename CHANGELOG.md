@@ -4,7 +4,8 @@
 
 A ground-up rewrite. aitop is no longer a fork of btop++: it is an
 independent Rust project (built on ratatui) that shares no code with it.
-Releases up to v1.4.6 belong to the earlier btop-based prototype.
+Versioning starts at 2.0.0 to mark the break from the earlier btop-based
+prototype; btop's own v1.x tags have been removed from this repository.
 
 ### Added
 

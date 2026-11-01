@@ -2,6 +2,8 @@
 
 **A btop-style terminal dashboard for AI coding tool usage.** See what Claude Code and Codex CLI are costing you, per project, model and session, live, without API keys and without sending anything anywhere.
 
+Inspired by [btop](https://github.com/aristocratos/btop).
+
 ![aitop](docs/screenshot.png)
 
 <sub>Screenshot generated from `scripts/make-demo-home.py` demo data.</sub>
@@ -141,7 +143,7 @@ To add a tool: write a `Source` in `src/sources/`, add a variant to `Tool` in `e
 
 ## Credits
 
-The look is inspired by [btop++](https://github.com/aristocratos/btop). aitop started as a fork of it and is now an independent Rust project sharing no code.
+The look is inspired by [btop++](https://github.com/aristocratos/btop) by aristocratos. An early aitop prototype was built on btop's code; the current aitop is an independent Rust project that shares no code with it.
 
 ## License
 
