@@ -1,0 +1,31 @@
+[package]
+name = "aitop"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.86"
+description = "A btop-style terminal dashboard for AI coding tool usage: Claude Code, Codex CLI and Gemini CLI"
+license = "Apache-2.0"
+repository = "https://github.com/Zollicoff/aitop"
+readme = "README.md"
+keywords = ["tui", "claude", "codex", "gemini", "usage"]
+categories = ["command-line-utilities"]
+
+[dependencies]
+anyhow = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+clap = { version = "4", features = ["derive"] }
+dirs = "6"
+ratatui = "0.30"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["raw_value"] }
+sha2 = "0.10"
+toml = "0.9"
+ureq = "3"
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
