@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, clap::ValueEnum)]
 #[serde(rename_all = "lowercase")]
 pub enum Tool {
     Claude,
@@ -28,6 +28,11 @@ impl Tool {
             Tool::Claude => "claude",
             Tool::Codex => "codex",
         }
+    }
+
+    /// Whether the tool's subscription is metered in 5-hour windows.
+    pub fn has_usage_windows(self) -> bool {
+        self == Tool::Claude
     }
 
     pub fn index(self) -> usize {

@@ -11,8 +11,9 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
-use super::{has_ext, parse_ts, read_new_lines, walk, Change, Ctx, Source, SourceStatus, Tail};
+use super::{discover, parse_ts, prune, Change, Ctx, Source, SourceStatus, Tail};
 use crate::event::{Event, Tokens, Tool};
+use crate::paths::{expand, home};
 use crate::project::decode_claude_dir;
 
 pub struct ClaudeSource {
@@ -24,6 +25,23 @@ impl ClaudeSource {
     pub fn new(roots: Vec<PathBuf>) -> Self {
         ClaudeSource { roots, files: HashMap::new() }
     }
+}
+
+/// `$CLAUDE_CONFIG_DIR/projects` (comma-separated list allowed), otherwise
+/// both the current (`~/.config/claude`) and legacy (`~/.claude`) locations.
+pub fn default_roots() -> Vec<PathBuf> {
+    if let Ok(dirs) = std::env::var("CLAUDE_CONFIG_DIR") {
+        let v: Vec<PathBuf> = dirs
+            .split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(|s| expand(Path::new(s)).join("projects"))
+            .collect();
+        if !v.is_empty() {
+            return v;
+        }
+    }
+    vec![home().join(".config/claude/projects"), home().join(".claude/projects")]
 }
 
 #[derive(Deserialize)]
@@ -72,26 +90,39 @@ struct OutputDetails {
 }
 
 impl Source for ClaudeSource {
+    fn tool(&self) -> Tool {
+        Tool::Claude
+    }
+
+    fn roots(&self) -> &[PathBuf] {
+        &self.roots
+    }
+
     fn scan(&mut self, ctx: &mut Ctx, out: &mut Vec<Event>) -> SourceStatus {
         let mut status = SourceStatus::new(Tool::Claude, &self.roots);
-        let mut paths = Vec::new();
-        for root in &self.roots {
-            walk(root, &|p| has_ext(p, "jsonl"), &mut paths);
-        }
+        let paths = discover(&self.roots, |p| p.extension().is_some_and(|e| e == "jsonl"));
         status.files = paths.len();
-        let present: std::collections::HashSet<&PathBuf> = paths.iter().collect();
-        self.files.retain(|p, _| present.contains(p));
+        prune(&mut self.files, &paths);
         for path in paths {
             let tail = self.files.entry(path.clone()).or_default();
+            // Transcripts are append-only, and re-read lines are de-duplicated
+            // by the collector, so a rewrite needs no special handling.
+            match tail.poll(&path) {
+                Ok(Change::Unchanged) => continue,
+                Ok(_) => {}
+                Err(e) => {
+                    status.error(&path, e);
+                    continue;
+                }
+            }
             let (fallback_session, fallback_project) = path_hints(&path, &self.roots);
-            let res = read_new_lines(&path, tail, |line| {
+            let res = tail.read_lines(&path, |line| {
                 if let Some(e) = parse_line(line, &fallback_session, &fallback_project, ctx) {
                     out.push(e);
                 }
             });
-            match res {
-                Ok(Change::Reset | Change::Appended | Change::Unchanged) => {}
-                Err(e) => status.errors.push(format!("{}: {e}", path.display())),
+            if let Err(e) = res {
+                status.error(&path, e);
             }
         }
         status

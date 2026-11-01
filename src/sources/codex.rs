@@ -10,28 +10,13 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::value::RawValue;
 
-use super::{has_ext, parse_ts, read_new_lines, walk, Change, Ctx, Source, SourceStatus, Tail};
+use super::{discover, parse_ts, prune, Change, Ctx, Source, SourceStatus, Tail};
 use crate::event::{Event, Tokens, Tool};
-
-#[derive(Clone, Debug, Default, Serialize, PartialEq)]
-pub struct LimitWindow {
-    pub used_percent: f64,
-    pub window_minutes: Option<u64>,
-    /// Unix ms.
-    pub resets_at: Option<i64>,
-}
-
-#[derive(Clone, Debug, Default, Serialize, PartialEq)]
-pub struct RateLimits {
-    /// When this snapshot was taken (unix ms).
-    pub ts: i64,
-    pub primary: Option<LimitWindow>,
-    pub secondary: Option<LimitWindow>,
-    pub plan: Option<String>,
-}
+use crate::limits::{LimitWindow, RateLimits};
+use crate::paths::home;
 
 #[derive(Default)]
 struct FileState {
@@ -48,13 +33,19 @@ pub struct CodexSource {
     /// Highest cumulative usage seen per session, so a resumed session that
     /// continues in a new rollout file is not counted twice.
     sessions: HashMap<Arc<str>, Usage>,
-    pub limits: Option<RateLimits>,
+    limits: Option<RateLimits>,
 }
 
 impl CodexSource {
     pub fn new(roots: Vec<PathBuf>) -> Self {
         CodexSource { roots, files: HashMap::new(), sessions: HashMap::new(), limits: None }
     }
+}
+
+/// `$CODEX_HOME` (default `~/.codex`): live and archived sessions.
+pub fn default_roots() -> Vec<PathBuf> {
+    let base = std::env::var_os("CODEX_HOME").map(PathBuf::from).unwrap_or_else(|| home().join(".codex"));
+    vec![base.join("sessions"), base.join("archived_sessions")]
 }
 
 #[derive(Deserialize)]
@@ -130,37 +121,45 @@ impl Usage {
 }
 
 impl Source for CodexSource {
+    fn tool(&self) -> Tool {
+        Tool::Codex
+    }
+
+    fn roots(&self) -> &[PathBuf] {
+        &self.roots
+    }
+
+    fn rate_limits(&self) -> Option<&RateLimits> {
+        self.limits.as_ref()
+    }
+
     fn scan(&mut self, ctx: &mut Ctx, out: &mut Vec<Event>) -> SourceStatus {
         let mut status = SourceStatus::new(Tool::Codex, &self.roots);
-        let mut paths = Vec::new();
-        for root in &self.roots {
-            walk(root, &|p| has_ext(p, "jsonl"), &mut paths);
-        }
-        // Rollout names start with a timestamp, so this is chronological.
-        paths.sort_by(|a, b| a.file_name().cmp(&b.file_name()));
+        // Rollout names start with a timestamp, so this is chronological,
+        // which the resumed-session accounting relies on.
+        let paths = discover(&self.roots, |p| p.extension().is_some_and(|e| e == "jsonl"));
         status.files = paths.len();
-        let present: std::collections::HashSet<&PathBuf> = paths.iter().collect();
-        self.files.retain(|p, _| present.contains(p));
+        prune(&mut self.files, &paths);
         for path in &paths {
             let mut st = self.files.remove(path).unwrap_or_default();
-            let fallback_session: Arc<str> = ctx.interner.get(&path.file_stem().unwrap_or_default().to_string_lossy());
-            let mut tail = st.tail;
-            let res = read_new_lines(path, &mut tail, |line| {
-                self.handle_line(line, &mut st, &fallback_session, ctx, out);
-            });
-            match res {
-                Ok(Change::Reset) => {
-                    // File was rewritten: start over.
-                    let mut fresh = FileState::default();
-                    let mut t = Tail::default();
-                    let _ = read_new_lines(path, &mut t, |line| {
-                        self.handle_line(line, &mut fresh, &fallback_session, ctx, out)
-                    });
-                    fresh.tail = t;
-                    st = fresh;
+            match st.tail.poll(path) {
+                Ok(Change::Unchanged) => {}
+                Ok(change) => {
+                    if change == Change::Reset {
+                        // Rewritten file: forget what we derived from it.
+                        st = FileState { tail: st.tail, ..Default::default() };
+                    }
+                    let fallback_session: Arc<str> =
+                        ctx.interner.get(&path.file_stem().unwrap_or_default().to_string_lossy());
+                    let mut tail = st.tail;
+                    let res =
+                        tail.read_lines(path, |line| self.handle_line(line, &mut st, &fallback_session, ctx, out));
+                    st.tail = tail;
+                    if let Err(e) = res {
+                        status.error(path, e);
+                    }
                 }
-                Ok(_) => st.tail = tail,
-                Err(e) => status.errors.push(format!("{}: {e}", path.display())),
+                Err(e) => status.error(path, e),
             }
             self.files.insert(path.clone(), st);
         }
@@ -341,7 +340,7 @@ mod tests {
         assert_eq!(&*out[0].model, "gpt-5-codex");
         assert_eq!(&*out[0].project, "webapp");
         assert_eq!(&*out[0].session, "sess-1");
-        let l = src.limits.clone().unwrap();
+        let l = src.rate_limits().cloned().unwrap();
         assert_eq!(l.primary.as_ref().unwrap().used_percent, 34.0);
         assert_eq!(l.primary.as_ref().unwrap().resets_at, Some(out[1].ts + 600_000));
         assert_eq!(l.secondary.as_ref().unwrap().resets_at, Some(1_800_000_000_000));

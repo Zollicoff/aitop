@@ -1,11 +1,4 @@
-//! Configuration file and well-known locations.
-//!
-//! aitop uses XDG-style locations on every Unix (including macOS) so the
-//! files are easy to find:
-//!
-//! * config:  `$XDG_CONFIG_HOME/aitop/config.toml` (default `~/.config/aitop`)
-//! * history: `$XDG_DATA_HOME/aitop/history.jsonl` (default `~/.local/share/aitop`)
-//! * cache:   `$XDG_CACHE_HOME/aitop/pricing.json` (default `~/.cache/aitop`)
+//! The optional `config.toml`.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -13,6 +6,8 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use serde::Deserialize;
 
+use crate::event::Tool;
+use crate::paths::{config_file, expand};
 use crate::pricing::Price;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -58,7 +53,7 @@ impl Config {
     pub fn load(path: Option<&Path>) -> Result<Config> {
         let (path, explicit) = match path {
             Some(p) => (p.to_path_buf(), true),
-            None => (config_dir().join("config.toml"), false),
+            None => (config_file(), false),
         };
         match std::fs::read_to_string(&path) {
             Ok(text) => toml::from_str(&text).with_context(|| format!("invalid config file {}", path.display())),
@@ -67,75 +62,13 @@ impl Config {
         }
     }
 
-    pub fn claude_roots(&self) -> Vec<PathBuf> {
-        if !self.paths.claude.is_empty() {
-            return self.paths.claude.iter().map(|p| expand(p)).collect();
-        }
-        if let Ok(dirs) = std::env::var("CLAUDE_CONFIG_DIR") {
-            let v: Vec<PathBuf> = dirs
-                .split(',')
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .map(|s| expand(Path::new(s)).join("projects"))
-                .collect();
-            if !v.is_empty() {
-                return v;
-            }
-        }
-        vec![home().join(".config/claude/projects"), home().join(".claude/projects")]
-    }
-
-    pub fn codex_roots(&self) -> Vec<PathBuf> {
-        if !self.paths.codex.is_empty() {
-            return self.paths.codex.iter().map(|p| expand(p)).collect();
-        }
-        let base = std::env::var_os("CODEX_HOME").map(PathBuf::from).unwrap_or_else(|| home().join(".codex"));
-        vec![base.join("sessions"), base.join("archived_sessions")]
-    }
-}
-
-pub fn home() -> PathBuf {
-    dirs::home_dir().unwrap_or_else(|| PathBuf::from("."))
-}
-
-fn expand(p: &Path) -> PathBuf {
-    match p.to_str().and_then(|s| s.strip_prefix("~/")) {
-        Some(rest) => home().join(rest),
-        None => p.to_path_buf(),
-    }
-}
-
-fn xdg(var: &str, fallback: &str, win: Option<PathBuf>) -> PathBuf {
-    if let Some(v) = std::env::var_os(var).filter(|v| !v.is_empty()) {
-        return PathBuf::from(v).join("aitop");
-    }
-    if cfg!(windows) {
-        if let Some(w) = win {
-            return w.join("aitop");
-        }
-    }
-    home().join(fallback).join("aitop")
-}
-
-pub fn config_dir() -> PathBuf {
-    xdg("XDG_CONFIG_HOME", ".config", dirs::config_dir())
-}
-
-pub fn data_dir() -> PathBuf {
-    xdg("XDG_DATA_HOME", ".local/share", dirs::data_dir())
-}
-
-pub fn cache_dir() -> PathBuf {
-    xdg("XDG_CACHE_HOME", ".cache", dirs::cache_dir())
-}
-
-/// Replace the home directory prefix with `~` for display.
-pub fn tilde(p: &Path) -> String {
-    let h = home();
-    match p.strip_prefix(&h) {
-        Ok(rest) if rest.as_os_str().is_empty() => "~".into(),
-        Ok(rest) => format!("~/{}", rest.display()),
-        Err(_) => p.display().to_string(),
+    /// Log directories configured for `tool`, if the user overrode the defaults.
+    pub fn roots_override(&self, tool: Tool) -> Option<Vec<PathBuf>> {
+        let v = match tool {
+            Tool::Claude => &self.paths.claude,
+            Tool::Codex => &self.paths.codex,
+        };
+        (!v.is_empty()).then(|| v.iter().map(|p| expand(p)).collect())
     }
 }
 

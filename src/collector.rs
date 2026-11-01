@@ -7,12 +7,11 @@ use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
 use crate::config::Config;
-use crate::event::{Event, Interner, Tool};
-use crate::pricing::{Price, PriceTable};
+use crate::event::{Event, Interner};
+use crate::limits::RateLimits;
+use crate::pricing::{PriceTable, Pricer};
 use crate::project::ProjectResolver;
-use crate::sources::claude::ClaudeSource;
-use crate::sources::codex::{CodexSource, RateLimits};
-use crate::sources::{Ctx, Source, SourceStatus};
+use crate::sources::{self, Ctx, Source, SourceStatus};
 use crate::store::Store;
 
 #[derive(Default)]
@@ -21,8 +20,9 @@ pub struct Dataset {
     pub events: Vec<Event>,
     /// Indexed by `Tool::index()`.
     pub status: Vec<SourceStatus>,
-    pub codex_limits: Option<RateLimits>,
-    /// Bumped whenever `events` changes.
+    /// Latest rate-limit snapshot per tool, indexed by `Tool::index()`.
+    pub limits: Vec<Option<RateLimits>>,
+    /// Bumped whenever `events` or `limits` change.
     pub version: u64,
     /// True once the first full scan has finished.
     pub loaded: bool,
@@ -35,12 +35,10 @@ pub struct Dataset {
 pub type Shared = Arc<RwLock<Dataset>>;
 
 pub struct Collector {
-    claude: ClaudeSource,
-    codex: CodexSource,
+    sources: Vec<Box<dyn Source>>,
     interner: Interner,
     projects: ProjectResolver,
-    pricing: PriceTable,
-    price_memo: HashMap<Arc<str>, Option<Price>>,
+    pricer: Pricer,
     /// id -> output tokens of the copy we kept.
     seen: HashMap<Arc<str>, u64>,
     store: Option<Store>,
@@ -49,23 +47,20 @@ pub struct Collector {
 
 impl Collector {
     pub fn new(cfg: &Config, history: Option<PathBuf>) -> Collector {
-        let pricing = PriceTable::load(&cfg.pricing);
+        let sources = sources::all(cfg);
+        let pricer = Pricer::new(PriceTable::load(&cfg.pricing));
         let data = Dataset {
-            pricing_sources: pricing.sources.clone(),
+            pricing_sources: pricer.table().sources.clone(),
             history_path: history.clone(),
-            status: vec![
-                SourceStatus::new(Tool::Claude, &cfg.claude_roots()),
-                SourceStatus::new(Tool::Codex, &cfg.codex_roots()),
-            ],
+            status: sources.iter().map(|s| SourceStatus::new(s.tool(), s.roots())).collect(),
+            limits: vec![None; sources.len()],
             ..Default::default()
         };
         Collector {
-            claude: ClaudeSource::new(cfg.claude_roots()),
-            codex: CodexSource::new(cfg.codex_roots()),
+            sources,
             interner: Interner::default(),
             projects: ProjectResolver::new(),
-            pricing,
-            price_memo: HashMap::new(),
+            pricer,
             seen: HashMap::new(),
             store: history.map(Store::new),
             data: Arc::new(RwLock::new(data)),
@@ -73,7 +68,7 @@ impl Collector {
     }
 
     pub fn pricing(&self) -> &PriceTable {
-        &self.pricing
+        self.pricer.table()
     }
 
     /// Load the local history file (if enabled).
@@ -92,13 +87,13 @@ impl Collector {
         let started = Instant::now();
         let mut events = Vec::new();
         let mut ctx = Ctx { interner: &mut self.interner, projects: &mut self.projects };
-        let st_claude = self.claude.scan(&mut ctx, &mut events);
-        let st_codex = self.codex.scan(&mut ctx, &mut events);
+        let status: Vec<SourceStatus> = self.sources.iter_mut().map(|s| s.scan(&mut ctx, &mut events)).collect();
+        let limits: Vec<Option<RateLimits>> = self.sources.iter().map(|s| s.rate_limits().cloned()).collect();
         let changed = self.merge(events, true);
         let mut d = self.data.write().unwrap();
-        d.status = vec![st_claude, st_codex];
-        if d.codex_limits != self.codex.limits {
-            d.codex_limits = self.codex.limits.clone();
+        d.status = status;
+        if d.limits != limits {
+            d.limits = limits;
             d.version += 1;
         }
         if !d.loaded {
@@ -109,78 +104,67 @@ impl Collector {
         changed
     }
 
-    fn price(&mut self, e: &mut Event) {
-        let p = match self.price_memo.get(&e.model) {
-            Some(p) => *p,
-            None => {
-                let p = self.pricing.lookup(&e.model).map(|(_, p)| *p);
-                self.price_memo.insert(e.model.clone(), p);
-                p
-            }
-        };
-        match p {
-            Some(p) => {
-                e.cost = p.cost(&e.tokens, e.fast);
-                e.priced = true;
-            }
-            None => {
-                e.cost = 0.0;
-                e.priced = false;
-            }
-        }
-    }
-
+    /// Add newly read events: de-duplicate, price, persist, insert.
     fn merge(&mut self, incoming: Vec<Event>, persist: bool) -> bool {
-        if incoming.is_empty() {
-            return false;
-        }
-        let mut added: Vec<Event> = Vec::new();
-        let mut replaced: Vec<Event> = Vec::new();
-        for mut e in incoming {
-            match self.seen.get(&e.id) {
-                Some(&out) if e.tokens.output <= out => continue,
-                Some(_) => {
-                    self.price(&mut e);
-                    self.seen.insert(e.id.clone(), e.tokens.output);
-                    // A later duplicate in the same batch replaces the earlier one.
-                    if let Some(a) = added.iter_mut().rev().find(|a| a.id == e.id) {
-                        *a = e;
-                    } else {
-                        replaced.push(e);
-                    }
-                }
-                None => {
-                    self.price(&mut e);
-                    self.seen.insert(e.id.clone(), e.tokens.output);
-                    added.push(e);
-                }
-            }
-        }
+        let (added, replaced) = self.dedupe(incoming);
         if added.is_empty() && replaced.is_empty() {
             return false;
         }
         if persist {
-            if let Some(store) = &mut self.store {
-                let refs: Vec<&Event> = added.iter().chain(replaced.iter()).collect();
-                if let Err(err) = store.append(&refs) {
-                    self.data.write().unwrap().history_error = Some(err.to_string());
-                }
+            self.persist(added.iter().chain(&replaced));
+        }
+        self.data.write().unwrap().insert(added, replaced);
+        true
+    }
+
+    /// Split `incoming` into new events and better copies of known ones (a
+    /// streamed Claude response is logged several times with growing output),
+    /// dropping everything already seen.
+    fn dedupe(&mut self, incoming: Vec<Event>) -> (Vec<Event>, Vec<Event>) {
+        let mut added: Vec<Event> = Vec::new();
+        let mut replaced: Vec<Event> = Vec::new();
+        for mut e in incoming {
+            let known = match self.seen.get(&e.id) {
+                Some(&out) if e.tokens.output <= out => continue,
+                Some(_) => true,
+                None => false,
+            };
+            self.pricer.apply(&mut e);
+            self.seen.insert(e.id.clone(), e.tokens.output);
+            if let Some(a) = added.iter_mut().rev().find(|a| a.id == e.id) {
+                *a = e;
+            } else if known {
+                replaced.push(e);
+            } else {
+                added.push(e);
             }
         }
-        let mut d = self.data.write().unwrap();
+        (added, replaced)
+    }
+
+    fn persist<'a>(&mut self, events: impl Iterator<Item = &'a Event>) {
+        let Some(store) = &mut self.store else { return };
+        let refs: Vec<&Event> = events.collect();
+        if let Err(err) = store.append(&refs) {
+            self.data.write().unwrap().history_error = Some(err.to_string());
+        }
+    }
+}
+
+impl Dataset {
+    fn insert(&mut self, added: Vec<Event>, replaced: Vec<Event>) {
         for r in replaced {
-            if let Some(slot) = d.events.iter_mut().rev().find(|x| x.id == r.id) {
+            if let Some(slot) = self.events.iter_mut().rev().find(|x| x.id == r.id) {
                 *slot = r;
             }
         }
-        let needs_sort = added.first().is_some_and(|a| d.events.last().is_some_and(|l| a.ts < l.ts))
+        let out_of_order = added.first().is_some_and(|a| self.events.last().is_some_and(|l| a.ts < l.ts))
             || !added.is_sorted_by_key(|e| e.ts);
-        d.events.extend(added);
-        if needs_sort {
-            d.events.sort_by_key(|e| e.ts);
+        self.events.extend(added);
+        if out_of_order {
+            self.events.sort_by_key(|e| e.ts);
         }
-        d.version += 1;
-        true
+        self.version += 1;
     }
 }
 

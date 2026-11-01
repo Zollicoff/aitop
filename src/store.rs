@@ -61,7 +61,7 @@ impl Store {
     }
 
     pub fn default_path() -> PathBuf {
-        crate::config::data_dir().join("history.jsonl")
+        crate::paths::data_dir().join("history.jsonl")
     }
 
     #[cfg(test)]

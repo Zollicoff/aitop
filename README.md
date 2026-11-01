@@ -122,7 +122,22 @@ python3 scripts/make-demo-home.py /tmp/aitop-demo
 HOME=/tmp/aitop-demo cargo run -- --no-history
 ```
 
-The code is small and split by concern: `sources/` (one incremental log reader per tool), `collector.rs` (merging, de-duplication, pricing, history), `aggregate.rs` (ranges, grouping, 5-hour windows), `ui/` (the dashboard) and `report.rs`.
+### Layout
+
+```
+src/
+  main.rs          entry point: parse args, dispatch to a command
+  cli.rs           command-line definition
+  commands/        one module per subcommand (dashboard, report, pricing, doctor)
+  sources/         log readers, one module per tool, behind the `Source` trait
+  collector.rs     runs the sources, de-duplicates, prices and stores events
+  aggregate/       ranges, per-project/model/session rows, 5-hour windows
+  pricing/         price table, cost maths, LiteLLM import
+  ui/              dashboard state, input handling, and draw/ (one module per region)
+  event.rs  limits.rs  project.rs  store.rs  config.rs  paths.rs  format.rs  theme.rs
+```
+
+To add a tool: write a `Source` in `src/sources/`, add a variant to `Tool` in `event.rs`, and register it in `sources::all`; the compiler then points at the couple of `match`es that need an entry (display name, colour). The collector, summaries, reports and dashboard need no changes.
 
 ## Credits
 
