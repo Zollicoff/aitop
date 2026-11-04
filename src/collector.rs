@@ -42,6 +42,8 @@ pub struct Collector {
     /// id -> output tokens of the copy we kept.
     seen: HashMap<Arc<str>, u64>,
     store: Option<Store>,
+    /// Only read log files modified since this time (unix ms).
+    since: Option<i64>,
     pub data: Shared,
 }
 
@@ -63,8 +65,15 @@ impl Collector {
             pricer,
             seen: HashMap::new(),
             store: history.map(Store::new),
+            since: None,
             data: Arc::new(RwLock::new(data)),
         }
+    }
+
+    /// Only read log files modified at or after `ms`: much faster for
+    /// commands that need recent usage only.
+    pub fn read_since(&mut self, ms: i64) {
+        self.since = Some(ms);
     }
 
     pub fn pricing(&self) -> &PriceTable {
@@ -86,7 +95,7 @@ impl Collector {
     pub fn scan(&mut self) -> bool {
         let started = Instant::now();
         let mut events = Vec::new();
-        let mut ctx = Ctx { interner: &mut self.interner, projects: &mut self.projects };
+        let mut ctx = Ctx { interner: &mut self.interner, projects: &mut self.projects, since: self.since };
         let status: Vec<SourceStatus> = self.sources.iter_mut().map(|s| s.scan(&mut ctx, &mut events)).collect();
         let limits: Vec<Option<RateLimits>> = self.sources.iter().map(|s| s.rate_limits().cloned()).collect();
         let changed = self.merge(events, true);
@@ -123,6 +132,9 @@ impl Collector {
     fn dedupe(&mut self, incoming: Vec<Event>) -> (Vec<Event>, Vec<Event>) {
         let mut added: Vec<Event> = Vec::new();
         let mut replaced: Vec<Event> = Vec::new();
+        // Where each id sits in `added`, so a later copy in the same batch
+        // replaces the earlier one without a scan.
+        let mut in_batch: HashMap<Arc<str>, usize> = HashMap::new();
         for mut e in incoming {
             let known = match self.seen.get(&e.id) {
                 Some(&out) if e.tokens.output <= out => continue,
@@ -131,11 +143,12 @@ impl Collector {
             };
             self.pricer.apply(&mut e);
             self.seen.insert(e.id.clone(), e.tokens.output);
-            if let Some(a) = added.iter_mut().rev().find(|a| a.id == e.id) {
-                *a = e;
+            if let Some(&i) = in_batch.get(&e.id) {
+                added[i] = e;
             } else if known {
                 replaced.push(e);
             } else {
+                in_batch.insert(e.id.clone(), added.len());
                 added.push(e);
             }
         }
