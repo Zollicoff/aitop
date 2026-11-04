@@ -1,0 +1,15 @@
+# Catppuccin Mocha — https://catppuccin.com
+name = "Catppuccin"
+background = "#1e1e2e"
+text = "#cdd6f4"
+bright = "#ffffff"
+dim = "#7f849c"
+faint = "#313244"
+border = "#45475a"
+selection = "#313244"
+good = "#a6e3a1"
+warn = "#f9e2af"
+bad = "#f38ba8"
+claude = "#fab387"
+codex = "#a6e3a1"
+gradient = ["#a6e3a1", "#f9e2af", "#f38ba8"]

@@ -3,6 +3,8 @@
 mod app;
 mod draw;
 mod input;
+#[cfg(test)]
+mod tests;
 
 use std::io::stdout;
 use std::path::PathBuf;
@@ -15,6 +17,7 @@ use ratatui::crossterm::execute;
 
 use crate::aggregate::Range;
 use crate::collector::{Command, Shared};
+use crate::theme::ThemeSet;
 use app::App;
 
 pub struct Options {
@@ -22,6 +25,9 @@ pub struct Options {
     pub active_window_ms: i64,
     pub hide_missing: bool,
     pub config_path: PathBuf,
+    pub themes: ThemeSet,
+    /// Key of the active theme.
+    pub theme: String,
 }
 
 pub fn run(data: Shared, tx: Sender<Command>, opts: Options) -> Result<()> {

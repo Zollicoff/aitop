@@ -34,7 +34,7 @@ pub(super) fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
     f.render_widget(Paragraph::new(Line::from(spans)), area);
 
     let status: Option<Span> = if let Some((msg, at)) = &app.flash {
-        (at.elapsed().as_secs() < 2).then(|| dim(format!("{msg} ")))
+        (at.elapsed().as_secs() < 3).then(|| dim(format!("{msg} ")))
     } else {
         None
     };
@@ -45,7 +45,7 @@ pub(super) fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
         if let Some(e) = &app.snap.history_error {
             return Some(Span::styled(
                 format!("⚠ history: {} ", format::truncate(e, 40)),
-                Style::new().fg(theme::warn()),
+                Style::new().fg(theme::bad()),
             ));
         }
         let unpriced: Vec<&str> = app

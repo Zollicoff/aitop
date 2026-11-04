@@ -20,7 +20,7 @@ use anyhow::Result;
 use clap::Parser;
 
 use aggregate::Range;
-use cli::{Cli, Cmd, PricingCmd};
+use cli::{Cli, Cmd, PricingCmd, ThemesCmd};
 use commands::Context;
 use config::Config;
 
@@ -34,12 +34,17 @@ fn main() {
 fn run() -> Result<()> {
     let cli = Cli::parse();
     let cfg = Config::load(cli.config.as_deref())?;
+    let themes = theme::ThemeSet::load(&paths::config_dir().join("themes"));
+    let selected = themes.get(cli.theme.as_deref().or(cfg.theme.as_deref()).unwrap_or("aitop"))?.clone();
+    theme::set(selected.palette);
     let ctx = Context {
         history: (cfg.history && !cli.no_history).then(store::Store::default_path),
         range: cli.range.or_else(|| Range::parse(&cfg.default_range)).unwrap_or(Range::Today),
         active_window_ms: (cfg.active_minutes.max(1) * 60_000) as i64,
         config_path: cli.config.clone().unwrap_or_else(paths::config_file),
         cfg,
+        themes,
+        theme: selected.key,
     };
     match cli.cmd {
         None => commands::dashboard::run(&ctx, cli.refresh),
@@ -49,6 +54,8 @@ fn run() -> Result<()> {
             commands::pricing::update(output.as_deref())
         }
         Some(Cmd::Pricing { action: Some(PricingCmd::Show { model }) }) => commands::pricing::show(&ctx, &model),
+        Some(Cmd::Themes { action: None }) => commands::themes::list(&ctx),
+        Some(Cmd::Themes { action: Some(ThemesCmd::Show { name }) }) => commands::themes::show(&ctx, &name),
         Some(Cmd::Doctor) => commands::doctor::run(&ctx),
         Some(Cmd::Config) => {
             print!("{}", config::EXAMPLE);

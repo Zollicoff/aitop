@@ -1,0 +1,15 @@
+# Dracula — https://draculatheme.com
+name = "Dracula"
+background = "#282a36"
+text = "#f8f8f2"
+bright = "#ffffff"
+dim = "#8b92c0"
+faint = "#3b3e50"
+border = "#6272a4"
+selection = "#44475a"
+good = "#50fa7b"
+warn = "#f1fa8c"
+bad = "#ff5555"
+claude = "#ffb86c"
+codex = "#50fa7b"
+gradient = ["#50fa7b", "#f1fa8c", "#ff5555"]

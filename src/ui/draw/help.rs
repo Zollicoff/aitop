@@ -62,6 +62,13 @@ pub(super) fn draw_help(f: &mut Frame, area: Rect, app: &App) {
         Span::styled(tilde(app.config_path()), dim),
     ]));
     lines.push(Line::from(vec![
+        Span::styled("  theme       ", Style::new().fg(theme::text())),
+        Span::styled(format!("{} · t / T to change · `aitop themes` lists them", app.theme_name()), dim),
+    ]));
+    for w in app.theme_warnings() {
+        lines.push(Line::from(Span::styled(format!("  ! theme {w}"), Style::new().fg(theme::warn()))));
+    }
+    lines.push(Line::from(vec![
         Span::styled("  records     ", Style::new().fg(theme::text())),
         Span::styled(
             format!(
@@ -95,6 +102,7 @@ pub(super) fn draw_help(f: &mut Frame, area: Rect, app: &App) {
         .border_type(BorderType::Rounded)
         .border_style(Style::new().fg(theme::dim()))
         .title(Line::from(Span::styled(" aitop help ", Style::new().fg(theme::bright()).bold())))
-        .title(Line::from(Span::styled(" esc to close ", dim)).right_aligned());
+        .title(Line::from(Span::styled(" esc to close ", dim)).right_aligned())
+        .style(Style::new().bg(theme::background()));
     f.render_widget(Paragraph::new(lines).block(block), popup);
 }

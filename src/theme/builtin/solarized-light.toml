@@ -1,0 +1,15 @@
+# Solarized Light — https://ethanschoonover.com/solarized
+name = "Solarized Light"
+background = "#fdf6e3"
+text = "#586e75"
+bright = "#073642"
+dim = "#93a1a1"
+faint = "#eee8d5"
+border = "#93a1a1"
+selection = "#eee8d5"
+good = "#859900"
+warn = "#b58900"
+bad = "#dc322f"
+claude = "#cb4b16"
+codex = "#2aa198"
+gradient = ["#859900", "#b58900", "#dc322f"]

@@ -23,6 +23,8 @@ pub struct Config {
     pub active_minutes: u64,
     /// Hide tools that are not installed instead of showing a placeholder.
     pub hide_missing: bool,
+    /// Colour theme: a built-in name or a file in `~/.config/aitop/themes`.
+    pub theme: Option<String>,
     pub paths: PathsConfig,
     /// Per-model price overrides in USD per million tokens.
     pub pricing: BTreeMap<String, Price>,
@@ -43,6 +45,7 @@ impl Default for Config {
             history: true,
             active_minutes: 5,
             hide_missing: false,
+            theme: None,
             paths: PathsConfig::default(),
             pricing: BTreeMap::new(),
         }
@@ -90,6 +93,12 @@ active_minutes = 5
 
 # Hide tools that are not installed instead of showing a placeholder.
 hide_missing = false
+
+# Colour theme: aitop (default), catppuccin, dracula, gruvbox, nord,
+# solarized-light, terminal (uses your terminal's own 16 colours) or
+# tokyo-night. Custom themes go in ~/.config/aitop/themes/NAME.toml; run
+# `aitop themes` to list them and `aitop themes show dracula` for a template.
+# theme = "aitop"
 
 # Override where logs are read from (defaults shown).
 # [paths]

@@ -1,0 +1,15 @@
+# aitop — the default theme. Uses the terminal's own background.
+name = "aitop"
+background = "default"
+text = "#d8dae2"
+bright = "#f4f5f8"
+dim = "#808494"
+faint = "#3a3d4a"
+border = "#4a4d5c"
+selection = "#2c303e"
+good = "#5cd07d"
+warn = "#e6c04a"
+bad = "#e5534b"
+claude = "#e08a5f"
+codex = "#4cc38a"
+gradient = ["#4cd07d", "#e6c84a", "#e5534b"]

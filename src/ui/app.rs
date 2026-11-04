@@ -15,6 +15,7 @@ use crate::collector::{Command, Shared};
 use crate::event::Tool;
 use crate::limits::RateLimits;
 use crate::sources::SourceStatus;
+use crate::theme;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum View {
@@ -87,6 +88,8 @@ pub struct App {
     /// Click targets recorded while drawing.
     pub hits: Vec<(Rect, Hit)>,
     pub flash: Option<(String, Instant)>,
+    /// Key of the active theme.
+    pub theme: String,
     pub(super) quit: bool,
 }
 
@@ -112,6 +115,7 @@ impl App {
             data,
             tx,
             range: opts.range,
+            theme: opts.theme.clone(),
             opts,
             sort: Sort::Cost,
             focus: Tool::ALL[0],
@@ -221,6 +225,26 @@ impl App {
         let st = &mut self.panels[tool.index()].table;
         let cur = st.selected().unwrap_or(0) as isize;
         st.select(Some(cur.saturating_add(delta).clamp(0, n as isize - 1) as usize));
+    }
+
+    pub(super) fn flash(&mut self, msg: impl Into<String>) {
+        self.flash = Some((msg.into(), Instant::now()));
+    }
+
+    /// Switch to the theme `delta` steps away in the list.
+    pub(super) fn cycle_theme(&mut self, delta: isize) {
+        let t = self.opts.themes.cycle(&self.theme, delta).clone();
+        theme::set(t.palette);
+        self.flash(format!("theme: {} · set theme = \"{}\" in the config to keep it", t.name, t.key));
+        self.theme = t.key;
+    }
+
+    pub fn theme_name(&self) -> &str {
+        self.opts.themes.find(&self.theme).map(|t| t.name.as_str()).unwrap_or(&self.theme)
+    }
+
+    pub fn theme_warnings(&self) -> &[String] {
+        &self.opts.themes.warnings
     }
 
     pub(super) fn set_view(&mut self, tool: Tool, view: View) {

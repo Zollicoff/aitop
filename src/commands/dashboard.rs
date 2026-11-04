@@ -20,6 +20,8 @@ pub fn run(ctx: &Context, refresh: Option<f64>) -> Result<()> {
         active_window_ms: ctx.active_window_ms,
         hide_missing: ctx.cfg.hide_missing,
         config_path: ctx.config_path.clone(),
+        themes: ctx.themes.clone(),
+        theme: ctx.theme.clone(),
     };
     ui::run(data, tx, opts)
 }

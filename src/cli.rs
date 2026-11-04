@@ -21,6 +21,9 @@ pub struct Cli {
     /// Don't read or write the local history file.
     #[arg(long, global = true)]
     pub no_history: bool,
+    /// Colour theme (see `aitop themes`).
+    #[arg(long, value_name = "NAME", global = true)]
+    pub theme: Option<String>,
     /// Use this config file instead of ~/.config/aitop/config.toml.
     #[arg(long, value_name = "PATH", global = true)]
     pub config: Option<PathBuf>,
@@ -34,6 +37,11 @@ pub enum Cmd {
     Pricing {
         #[command(subcommand)]
         action: Option<PricingCmd>,
+    },
+    /// List colour themes, or print one as a starting point for your own.
+    Themes {
+        #[command(subcommand)]
+        action: Option<ThemesCmd>,
     },
     /// Show where aitop looks for logs and what it found.
     Doctor,
@@ -51,4 +59,10 @@ pub enum PricingCmd {
     },
     /// Look up the price used for a model id.
     Show { model: String },
+}
+
+#[derive(Subcommand)]
+pub enum ThemesCmd {
+    /// Print a theme as TOML, e.g. `aitop themes show dracula > ~/.config/aitop/themes/mine.toml`.
+    Show { name: String },
 }

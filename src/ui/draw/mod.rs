@@ -28,6 +28,8 @@ use crate::theme;
 pub fn draw(f: &mut Frame, app: &mut App) {
     app.hits.clear();
     let area = f.area();
+    // Paint the theme's background (a no-op for themes that keep the terminal's).
+    f.render_widget(Block::new().style(Style::new().bg(theme::background()).fg(theme::text())), area);
     let [header, body, footer] =
         Layout::vertical([Constraint::Length(1), Constraint::Fill(1), Constraint::Length(1)]).areas(area);
     draw_header(f, header, app);

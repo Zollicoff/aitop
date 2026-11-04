@@ -1,0 +1,15 @@
+# Gruvbox (dark) — https://github.com/morhetz/gruvbox
+name = "Gruvbox"
+background = "#282828"
+text = "#ebdbb2"
+bright = "#fbf1c7"
+dim = "#a89984"
+faint = "#3c3836"
+border = "#665c54"
+selection = "#3c3836"
+good = "#b8bb26"
+warn = "#fabd2f"
+bad = "#fb4934"
+claude = "#fe8019"
+codex = "#b8bb26"
+gradient = ["#b8bb26", "#fabd2f", "#fb4934"]

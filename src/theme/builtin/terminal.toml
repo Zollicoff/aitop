@@ -1,0 +1,16 @@
+# terminal — only the terminal's own 16 ANSI colours, so aitop follows
+# whatever colour scheme the terminal uses (light or dark).
+name = "terminal"
+background = "default"
+text = "default"
+bright = "default"
+dim = "bright-black"
+faint = "bright-black"
+border = "bright-black"
+selection = "bright-black"
+good = "green"
+warn = "yellow"
+bad = "red"
+claude = "magenta"
+codex = "cyan"
+gradient = ["green", "yellow", "red"]

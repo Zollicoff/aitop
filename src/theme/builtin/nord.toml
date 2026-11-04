@@ -1,0 +1,15 @@
+# Nord — https://www.nordtheme.com
+name = "Nord"
+background = "#2e3440"
+text = "#d8dee9"
+bright = "#eceff4"
+dim = "#8a94ab"
+faint = "#3b4252"
+border = "#4c566a"
+selection = "#3b4252"
+good = "#a3be8c"
+warn = "#ebcb8b"
+bad = "#bf616a"
+claude = "#d08770"
+codex = "#a3be8c"
+gradient = ["#a3be8c", "#ebcb8b", "#bf616a"]

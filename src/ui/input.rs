@@ -1,7 +1,5 @@
 //! Keyboard and mouse handling.
 
-use std::time::Instant;
-
 use ratatui::crossterm::event::{
     KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
@@ -52,9 +50,11 @@ impl App {
             KeyCode::Char(']') => self.range = self.range.cycle(1),
             KeyCode::Char('s') => self.sort = self.sort.next(),
             KeyCode::Char('z') | KeyCode::Enter => self.zoom = !self.zoom,
+            KeyCode::Char('t') => self.cycle_theme(1),
+            KeyCode::Char('T') => self.cycle_theme(-1),
             KeyCode::Char('r') => {
                 let _ = self.tx.send(Command::Rescan);
-                self.flash = Some(("rescanning…".into(), Instant::now()));
+                self.flash("rescanning…");
             }
             _ => {}
         }

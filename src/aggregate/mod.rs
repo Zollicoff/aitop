@@ -5,7 +5,7 @@ mod range;
 mod rows;
 mod summary;
 #[cfg(test)]
-mod testutil;
+pub(crate) mod testutil;
 
 pub use block::Block;
 pub use range::{Bucket, Range, Sort};
