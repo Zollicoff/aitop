@@ -23,11 +23,28 @@ impl App {
             }
             return;
         }
+        if ctrl && k.code == KeyCode::Char('c') {
+            self.quit = true;
+            return;
+        }
+        if self.searching {
+            self.on_search_key(k);
+            return;
+        }
         let f = self.focus;
         match k.code {
-            KeyCode::Char('c') if ctrl => self.quit = true,
             KeyCode::Char('q') => self.quit = true,
-            KeyCode::Esc => self.zoom = false,
+            // Esc backs out one step: search, then drill-down, then zoom.
+            KeyCode::Esc => {
+                if !self.clear_search() && !self.drill_out() {
+                    self.zoom = false;
+                }
+            }
+            KeyCode::Backspace => {
+                self.drill_out();
+            }
+            KeyCode::Enter => self.drill_in(),
+            KeyCode::Char('/') => self.start_search(),
             KeyCode::Char('?') | KeyCode::F(1) => self.help = true,
             KeyCode::Tab => self.move_focus(1),
             KeyCode::BackTab => self.move_focus(-1),
@@ -49,7 +66,7 @@ impl App {
             KeyCode::Char('[') => self.range = self.range.cycle(-1),
             KeyCode::Char(']') => self.range = self.range.cycle(1),
             KeyCode::Char('s') => self.sort = self.sort.next(),
-            KeyCode::Char('z') | KeyCode::Enter => self.zoom = !self.zoom,
+            KeyCode::Char('z') => self.zoom = !self.zoom,
             KeyCode::Char('t') => self.cycle_theme(1),
             KeyCode::Char('T') => self.cycle_theme(-1),
             KeyCode::Char('r') => {

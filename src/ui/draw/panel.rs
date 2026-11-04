@@ -19,7 +19,8 @@ use crate::ui::app::{App, Hit};
 pub(super) fn draw_panel(f: &mut Frame, area: Rect, app: &mut App, tool: Tool) {
     let Some(summary) = app.summary.clone() else { return };
     let ts = summary.tool(tool);
-    let block = panel_block(tool, ts, app.focus == tool, app.range);
+    let crumbs: Vec<String> = app.panels[tool.index()].crumbs.iter().map(|(f, _)| f.label.clone()).collect();
+    let block = panel_block(tool, ts, app.focus == tool, app.range, &crumbs);
     let inner = block.inner(area);
     f.render_widget(block, area);
     app.hits.push((area, Hit::Panel(tool)));
@@ -54,17 +55,22 @@ fn split(inner: Rect) -> (Rect, Option<Rect>) {
     }
 }
 
-fn panel_block(tool: Tool, ts: &ToolSummary, focused: bool, range: Range) -> Block<'static> {
+/// The border, with `● Tool › crumb › crumb` as the title.
+fn panel_block(tool: Tool, ts: &ToolSummary, focused: bool, range: Range, crumbs: &[String]) -> Block<'static> {
     let accent = theme::accent(tool);
     let edge = Style::new().fg(if focused { accent } else { theme::border() });
     let dot = if ts.active_sessions > 0 { Span::styled("●", Style::new().fg(theme::good())) } else { dim("○") };
-    let title = Line::from(vec![
-        Span::styled("┤ ", edge),
-        dot,
-        Span::raw(" "),
-        Span::styled(tool.name(), Style::new().fg(accent).bold()),
-        Span::styled(" ├", edge),
-    ]);
+    let mut title =
+        vec![Span::styled("┤ ", edge), dot, Span::raw(" "), Span::styled(tool.name(), Style::new().fg(accent).bold())];
+    for c in crumbs {
+        title.push(dim(" › "));
+        title.push(Span::styled(c.clone(), Style::new().fg(theme::bright()).bold()));
+    }
+    if !crumbs.is_empty() {
+        title.push(dim("  esc ↩"));
+    }
+    title.push(Span::styled(" ├", edge));
+    let title = Line::from(title);
     // Today's spend in the corner, unless the panel already shows today.
     let today = if range == Range::Today || ts.today_messages == 0 {
         Line::default()

@@ -22,7 +22,8 @@ pub(super) fn draw_table(f: &mut Frame, area: Rect, app: &mut App, tool: Tool, s
     }
     let ts = summary.tool(tool);
     let view = app.panels[tool.index()].view;
-    let rows = rows_for(ts, view);
+    let query = app.panels[tool.index()].query.clone();
+    let rows = rows_for(ts, view, &query);
     let [tabs, rest] = Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(area);
     draw_tabs(f, tabs, app, tool);
 
@@ -31,10 +32,12 @@ pub(super) fn draw_table(f: &mut Frame, area: Rect, app: &mut App, tool: Tool, s
         Layout::vertical([Constraint::Fill(1), Constraint::Length(if show_detail { 2 } else { 0 })]).areas(rest);
     if rows.is_empty() {
         let middle = table_area.inner(Margin { horizontal: 0, vertical: (table_area.height / 2).saturating_sub(1) });
-        f.render_widget(
-            Paragraph::new(dim(format!("no usage {}", app.range.label()))).alignment(Alignment::Center),
-            middle,
-        );
+        let what = if query.is_empty() {
+            format!("no usage {}", app.range.label())
+        } else {
+            format!("nothing matches \"{query}\"")
+        };
+        f.render_widget(Paragraph::new(dim(what)).alignment(Alignment::Center), middle);
         return;
     }
 
@@ -83,7 +86,19 @@ fn draw_tabs(f: &mut Frame, area: Rect, app: &mut App, tool: Tool) {
         spans.extend([Span::styled(label, style), Span::raw(" ")]);
     }
     f.render_widget(Paragraph::new(Line::from(spans)), area);
-    f.render_widget(Paragraph::new(dim(format!("by {} ↓ ", app.sort.label()))).alignment(Alignment::Right), area);
+    // Right side: the search box when searching, otherwise the sort order.
+    let query = &app.panels[tool.index()].query;
+    let typing = app.searching && app.focus == tool;
+    let right = if typing || !query.is_empty() {
+        let cursor = if typing { "▏" } else { "" };
+        Line::from(vec![
+            Span::styled("/", Style::new().fg(theme::accent(tool)).bold()),
+            Span::styled(format!("{query}{cursor} "), Style::new().fg(theme::bright())),
+        ])
+    } else {
+        Line::from(dim(format!("by {} ↓ ", app.sort.label())))
+    };
+    f.render_widget(Paragraph::new(right).alignment(Alignment::Right), area);
 }
 
 fn draw_scrollbar(f: &mut Frame, area: Rect, max_offset: usize, offset: usize) {

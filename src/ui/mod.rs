@@ -3,6 +3,7 @@
 mod app;
 mod draw;
 mod input;
+mod nav;
 #[cfg(test)]
 mod tests;
 

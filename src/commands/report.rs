@@ -53,7 +53,7 @@ pub fn run(ctx: &Context, args: &Args) -> Result<()> {
     let c = ctx.snapshot();
     let d = c.data.read().unwrap();
     let now = Local::now();
-    let summary = summarize(&d.events, ctx.range, args.sort, now, ctx.active_window_ms);
+    let summary = summarize(&d.events, ctx.range, args.sort, now, ctx.active_window_ms, &[]);
     let budgets = budget::evaluate(&d.events, &ctx.cfg.budget, now);
     let report = Report::new(&summary, &d.events, &budgets, args);
     if args.json {

@@ -18,13 +18,13 @@ use crate::sources::SourceStatus;
 use crate::theme::{self, ThemeSet};
 
 /// An app over a few events, with `theme` applied.
-pub(super) fn app(theme_key: &str) -> App {
+pub(crate) fn app(theme_key: &str) -> App {
     app_with(theme_key, BudgetConfig::default()).0
 }
 
 /// Like [`app`], with budgets, also returning the shared data so tests can
 /// add events.
-pub(super) fn app_with(theme_key: &str, budget: BudgetConfig) -> (App, Shared) {
+pub(crate) fn app_with(theme_key: &str, budget: BudgetConfig) -> (App, Shared) {
     let themes = ThemeSet::builtins();
     theme::set(themes.get(theme_key).unwrap().palette);
     let now = chrono::Local::now().timestamp_millis();
@@ -63,13 +63,13 @@ pub(super) fn app_with(theme_key: &str, budget: BudgetConfig) -> (App, Shared) {
     (app, shared)
 }
 
-pub(super) fn render(app: &mut App, w: u16, h: u16) -> Buffer {
+pub(crate) fn render(app: &mut App, w: u16, h: u16) -> Buffer {
     let mut term = Terminal::new(TestBackend::new(w, h)).unwrap();
     term.draw(|f| draw::draw(f, app)).unwrap();
     term.backend().buffer().clone()
 }
 
-pub(super) fn text(buf: &Buffer) -> String {
+pub(crate) fn text(buf: &Buffer) -> String {
     let w = buf.area.width as usize;
     buf.content.chunks(w).map(|row| row.iter().map(|c| c.symbol()).collect::<String>() + "\n").collect()
 }

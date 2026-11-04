@@ -17,23 +17,30 @@ use crate::ui::app::App;
 
 pub(super) fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
     let key = |k: &str| Span::styled(k.to_string(), Style::new().fg(theme::text()).bold());
-    let txt = |t: &str| dim(t.to_string());
-    let mut spans = vec![txt(" ")];
-    for (k, t) in [
-        ("q", " quit  "),
-        ("tab", " panel  "),
-        ("↑↓", " select  "),
-        ("←→", " view  "),
-        ("1-4", " range  "),
-        ("s", " sort  "),
-        ("z", " zoom  "),
-        ("?", " help"),
-    ] {
-        if area.width < 70 && matches!(k, "s" | "z" | "1-4") {
-            continue;
+    // Most useful first; as many as fit in about two thirds of the line.
+    let hints = [
+        ("q", "quit"),
+        ("?", "help"),
+        ("⏎", "open"),
+        ("/", "search"),
+        ("tab", "panel"),
+        ("←→", "view"),
+        ("1-4", "range"),
+        ("s", "sort"),
+        ("t", "theme"),
+        ("z", "zoom"),
+        ("↑↓", "select"),
+    ];
+    let budget = (area.width as usize * 2 / 3).max(20);
+    let mut used = 1;
+    let mut spans = vec![dim(" ")];
+    for (k, t) in hints {
+        let w = k.chars().count() + t.len() + 3;
+        if used + w > budget {
+            break;
         }
-        spans.push(key(k));
-        spans.push(txt(t));
+        used += w;
+        spans.extend([key(k), dim(format!(" {t}  "))]);
     }
     f.render_widget(Paragraph::new(Line::from(spans)), area);
 
@@ -73,8 +80,11 @@ pub(super) fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
         }
         None
     });
-    if let Some(s) = status {
-        if area.width > 90 {
+    // The status message gets whatever the hints left.
+    if let Some(mut s) = status {
+        let room = (area.width as usize).saturating_sub(used + 1);
+        if room >= 12 {
+            s.content = format::truncate(&s.content, room).into();
             f.render_widget(Paragraph::new(Line::from(s)).alignment(Alignment::Right), area);
         }
     }

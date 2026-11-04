@@ -11,7 +11,7 @@ use ratatui::layout::Rect;
 use ratatui::widgets::TableState;
 
 use super::Options;
-use crate::aggregate::{summarize, Range, Row, Sort, Summary, ToolSummary};
+use crate::aggregate::{summarize, Filter, Range, Row, Sort, Summary, ToolSummary};
 use crate::budget::{self, Budget, Level, Period};
 use crate::collector::{Command, Shared};
 use crate::event::Tool;
@@ -78,6 +78,16 @@ pub struct Flash {
 pub struct PanelState {
     pub view: View,
     pub table: TableState,
+    /// Drill-down path: each filter with the view that was showing before it.
+    pub crumbs: Vec<(Filter, View)>,
+    /// Table search text.
+    pub query: String,
+}
+
+impl PanelState {
+    pub fn filters(&self) -> Vec<Filter> {
+        self.crumbs.iter().map(|(f, _)| f.clone()).collect()
+    }
 }
 
 pub struct App {
@@ -93,7 +103,13 @@ pub struct App {
     pub help: bool,
     /// Shared so drawing code can hold it while mutating the rest of the app.
     pub summary: Option<Arc<Summary>>,
-    summary_key: Option<(u64, Range, Sort, i64)>,
+    summary_key: Option<(u64, Range, Sort, i64, u64)>,
+    /// Bumped when any panel's drill-down filters change.
+    pub(super) filters_rev: u64,
+    /// Typing into the focused panel's search box.
+    pub searching: bool,
+    /// Row (by key) to select after the next refresh, when backing out of a drill-down.
+    pub(super) reselect: Option<(Tool, String)>,
     pub snap: Snapshot,
     /// Click targets recorded while drawing.
     pub hits: Vec<(Rect, Hit)>,
@@ -114,13 +130,18 @@ pub enum Hit {
     Range(Range),
 }
 
-/// The rows a panel shows in `view`.
-pub fn rows_for(ts: &ToolSummary, view: View) -> &[Row] {
-    match view {
+/// The rows a panel shows in `view`, narrowed by its search `query`
+/// (case-insensitive, matching the name, detail or key).
+pub fn rows_for<'a>(ts: &'a ToolSummary, view: View, query: &str) -> Vec<&'a Row> {
+    let rows = match view {
         View::Projects => &ts.projects,
         View::Models => &ts.models,
         View::Sessions => &ts.session_rows,
-    }
+    };
+    let q = query.trim().to_lowercase();
+    rows.iter()
+        .filter(|r| q.is_empty() || [&r.name, &r.detail, &r.key].iter().any(|s| s.to_lowercase().contains(&q)))
+        .collect()
 }
 
 impl App {
@@ -138,6 +159,9 @@ impl App {
             help: false,
             summary: None,
             summary_key: None,
+            filters_rev: 0,
+            searching: false,
+            reselect: None,
             snap: Snapshot::default(),
             hits: Vec::new(),
             flash: None,
@@ -150,6 +174,11 @@ impl App {
     /// Pull the latest data from the collector before drawing a frame.
     pub(super) fn refresh(&mut self) {
         self.refresh_data();
+        if let Some((tool, key)) = self.reselect.take() {
+            if let Some(i) = self.rows(tool).iter().position(|r| r.key == key) {
+                self.panels[tool.index()].table.select(Some(i));
+            }
+        }
         if !self.visible().contains(&self.focus) {
             if let Some(&t) = self.visible().first() {
                 self.focus = t;
@@ -163,10 +192,12 @@ impl App {
         let d = self.data.read().unwrap();
         // Recompute when data, range or sort change, and at least once a
         // minute so "active" and the day boundary stay current.
-        let key = (d.version, self.range, self.sort, now.timestamp() / 60);
+        let key = (d.version, self.range, self.sort, now.timestamp() / 60, self.filters_rev);
         let recomputed = self.summary_key != Some(key);
         if recomputed {
-            self.summary = Some(Arc::new(summarize(&d.events, self.range, self.sort, now, self.opts.active_window_ms)));
+            let filters: Vec<Vec<Filter>> = self.panels.iter().map(PanelState::filters).collect();
+            let s = summarize(&d.events, self.range, self.sort, now, self.opts.active_window_ms, &filters);
+            self.summary = Some(Arc::new(s));
             self.summary_key = Some(key);
             self.budgets = budget::evaluate(&d.events, &self.opts.budget, now);
         }
@@ -221,10 +252,11 @@ impl App {
         }
     }
 
-    pub fn rows(&self, t: Tool) -> &[Row] {
+    pub fn rows(&self, t: Tool) -> Vec<&Row> {
+        let p = &self.panels[t.index()];
         match &self.summary {
-            Some(s) => rows_for(s.tool(t), self.panels[t.index()].view),
-            None => &[],
+            Some(s) => rows_for(s.tool(t), p.view, &p.query),
+            None => Vec::new(),
         }
     }
 
@@ -299,6 +331,8 @@ impl App {
     }
 
     pub(super) fn set_view(&mut self, tool: Tool, view: View) {
-        self.panels[tool.index()] = PanelState { view, table: TableState::default().with_selected(Some(0)) };
+        let p = &mut self.panels[tool.index()];
+        p.view = view;
+        p.table = TableState::default().with_selected(Some(0));
     }
 }

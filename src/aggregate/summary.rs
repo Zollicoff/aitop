@@ -6,6 +6,7 @@ use chrono::{DateTime, Local, NaiveDate, TimeZone};
 use serde::Serialize;
 
 use super::block::{current_block, Block};
+use super::filter::{matches_all, Filter};
 use super::range::{buckets, Bucket, Range, Sort};
 use super::rows::{disambiguate, Acc, Groups, Row};
 use crate::event::{Event, Tokens, Tool};
@@ -61,6 +62,24 @@ struct Input<'a> {
     sort: Sort,
     now: i64,
     active_since: i64,
+    /// Per tool (by index); missing means unfiltered.
+    filters: &'a [Vec<Filter>],
+}
+
+impl Input<'_> {
+    fn filters(&self, tool: Tool) -> &[Filter] {
+        self.filters.get(tool.index()).map(Vec::as_slice).unwrap_or(&[])
+    }
+
+    /// `tool`'s events in `events` that pass its filters.
+    fn selected<'e>(
+        &self,
+        events: &'e [Event],
+        tool: Tool,
+    ) -> impl DoubleEndedIterator<Item = &'e Event> + use<'e, '_> {
+        let filters = self.filters(tool);
+        of_tool(events, tool).filter(move |e| matches_all(filters, e))
+    }
 }
 
 fn of_tool(events: &[Event], tool: Tool) -> impl DoubleEndedIterator<Item = &Event> {
@@ -73,7 +92,17 @@ fn since(events: &[Event], start: Option<i64>) -> &[Event] {
     &events[lo..]
 }
 
-pub fn summarize(events: &[Event], range: Range, sort: Sort, now: DateTime<Local>, active_window_ms: i64) -> Summary {
+/// Summaries for every tool over `range`. `filters` (indexed by tool) narrow
+/// a tool to a project, model and/or session; the 5-hour window is account
+/// wide and ignores them.
+pub fn summarize(
+    events: &[Event],
+    range: Range,
+    sort: Sort,
+    now: DateTime<Local>,
+    active_window_ms: i64,
+    filters: &[Vec<Filter>],
+) -> Summary {
     let now_ms = now.timestamp_millis();
     let (bucket_starts, bucket) = buckets(range, now, events.first().map(|e| e.ts));
     let input = Input {
@@ -84,15 +113,18 @@ pub fn summarize(events: &[Event], range: Range, sort: Sort, now: DateTime<Local
         sort,
         now: now_ms,
         active_since: now_ms - active_window_ms,
+        filters,
     };
     let tools: Vec<ToolSummary> = Tool::ALL.into_iter().map(|t| summarize_tool(t, &input)).collect();
+    // Totals cover everything, whatever the panels are narrowed to.
+    let unfiltered = Input { filters: &[], ..input };
     Summary {
         range,
         now: now_ms,
         bucket,
-        total_cost: tools.iter().map(|t| t.cost).sum(),
-        total_tokens: tools.iter().map(|t| t.tokens.total()).sum(),
-        active_sessions: tools.iter().map(|t| t.active_sessions).sum(),
+        total_cost: input.in_range.iter().map(|e| e.cost).sum::<f64>() + 0.0,
+        total_tokens: input.in_range.iter().map(|e| e.tokens.total()).sum(),
+        active_sessions: Tool::ALL.into_iter().map(|t| activity(t, &unfiltered).1).sum(),
         buckets: bucket_starts,
         tools,
     }
@@ -103,7 +135,7 @@ fn summarize_tool(tool: Tool, input: &Input) -> ToolSummary {
     let (mut projects, mut models, mut sessions) = (Groups::default(), Groups::default(), Groups::default());
     let mut series = vec![0.0; input.buckets.len()];
     let mut unpriced = BTreeSet::new();
-    for e in of_tool(input.in_range, tool) {
+    for e in input.selected(input.in_range, tool) {
         total.add(e);
         projects.add(&e.project_path, &e.project, &e.project_path, e);
         models.add(&e.model, &e.model, &e.model, e);
@@ -119,7 +151,8 @@ fn summarize_tool(tool: Tool, input: &Input) -> ToolSummary {
     let mut project_rows = projects.into_rows(input.sort, |a| a.detail());
     disambiguate(&mut project_rows);
 
-    let (today_cost, today_messages) = of_tool(input.today, tool).fold((0.0, 0), |(c, n), e| (c + e.cost, n + 1));
+    let (today_cost, today_messages) =
+        input.selected(input.today, tool).fold((0.0, 0), |(c, n), e| (c + e.cost, n + 1));
     let (last_ts, active_sessions) = activity(tool, input);
     ToolSummary {
         tool,
@@ -142,7 +175,7 @@ fn summarize_tool(tool: Tool, input: &Input) -> ToolSummary {
 
 /// Most recent activity and the number of sessions active within the window.
 fn activity(tool: Tool, input: &Input) -> (Option<i64>, usize) {
-    let mut recent = of_tool(input.all, tool).rev().peekable();
+    let mut recent = input.selected(input.all, tool).rev().peekable();
     let last_ts = recent.peek().map(|e| e.ts);
     let active: HashSet<_> = recent.take_while(|e| e.ts >= input.active_since).map(|e| &e.session).collect();
     (last_ts, active.len())
@@ -187,11 +220,11 @@ mod tests {
             ev(&mut i, Tool::Codex, n - 10_000, "/a/api", "x1", 3.0),
         ];
         events.sort_by_key(|e| e.ts);
-        let all = summarize(&events, Range::All, Sort::Cost, now, 5 * 60_000);
+        let all = summarize(&events, Range::All, Sort::Cost, now, 5 * 60_000, &[]);
         assert_eq!(all.tool(Tool::Claude).cost, 8.5);
         assert_eq!(all.tool(Tool::Codex).cost, 3.0);
         assert_eq!(all.total_cost, 11.5);
-        let week = summarize(&events, Range::Week, Sort::Cost, now, 5 * 60_000);
+        let week = summarize(&events, Range::Week, Sort::Cost, now, 5 * 60_000, &[]);
         let c = week.tool(Tool::Claude);
         assert_eq!(c.cost, 3.5);
         assert_eq!(c.sessions, 2);
@@ -203,10 +236,39 @@ mod tests {
         let names: Vec<&str> = c.projects.iter().map(|r| r.name.as_str()).collect();
         assert_eq!(names, ["b/web", "a/web", "api"]);
         assert_eq!(c.session_rows[0].detail, "m", "session rows show their top model");
-        let month = summarize(&events, Range::Month, Sort::Recent, now, 5 * 60_000);
+        let month = summarize(&events, Range::Month, Sort::Recent, now, 5 * 60_000, &[]);
         assert_eq!(month.tool(Tool::Claude).projects[0].name, "api");
         assert!(all.tool(Tool::Codex).block.is_none());
         assert!(all.tool(Tool::Claude).block.is_some());
+    }
+
+    #[test]
+    fn filters_narrow_one_tool() {
+        let now = Local::now();
+        let n = now.timestamp_millis();
+        let mut i = Interner::default();
+        let mut events = vec![
+            ev(&mut i, Tool::Claude, n - 50_000, "/a/web", "s1", 1.0),
+            ev(&mut i, Tool::Claude, n - 40_000, "/a/api", "s2", 2.0),
+            ev(&mut i, Tool::Claude, n - 30_000, "/a/api", "s3", 4.0),
+            ev(&mut i, Tool::Codex, n - 20_000, "/a/web", "x1", 8.0),
+        ];
+        events.sort_by_key(|e| e.ts);
+        let api = Filter { kind: crate::aggregate::FilterKind::Project, key: "/a/api".into(), label: "api".into() };
+        let filters = vec![vec![api.clone()], vec![]];
+        let s = summarize(&events, Range::All, Sort::Cost, now, 5 * 60_000, &filters);
+        let c = s.tool(Tool::Claude);
+        assert_eq!(c.cost, 6.0);
+        assert_eq!(c.sessions, 2);
+        assert_eq!(c.projects.len(), 1);
+        assert_eq!(c.active_sessions, 2);
+        assert_eq!(c.block.as_ref().unwrap().cost, 7.0, "the 5h window ignores filters");
+        assert_eq!(s.tool(Tool::Codex).cost, 8.0, "other tools are unaffected");
+        assert_eq!(s.total_cost, 15.0, "totals ignore filters");
+        assert_eq!(s.active_sessions, 4);
+        let s3 = Filter { kind: crate::aggregate::FilterKind::Session, key: "s3".into(), label: "s3".into() };
+        let narrower = summarize(&events, Range::All, Sort::Cost, now, 5 * 60_000, &[vec![api, s3]]);
+        assert_eq!(narrower.tool(Tool::Claude).cost, 4.0);
     }
 
     #[test]
