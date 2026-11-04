@@ -106,7 +106,7 @@ fn budgets_show_and_alert_on_change() {
     let (mut a, data) = app_with("aitop", budget);
     assert!(a.flash.is_none(), "levels at startup are not alerts");
     let out = text(&render(&mut a, 130, 40));
-    assert!(out.contains("Budget"), "{out}");
+    assert!(out.contains("Day $") && out.contains("$4.25/$5.00"), "{out}");
     assert!(out.contains("over Claude Code daily budget"), "claude is past $3: {out}");
 
     // More spending pushes the all-tools budget over.
