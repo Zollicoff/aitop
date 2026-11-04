@@ -1,5 +1,34 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- Themes: eight built in (aitop, catppuccin, dracula, gruvbox, nord,
+  solarized-light, terminal, tokyo-night) and custom TOML themes in
+  `~/.config/aitop/themes/`; `--theme`, `theme = "…"`, `t` / `T` to cycle,
+  `aitop themes` and `aitop themes show NAME`.
+- Budgets: daily / weekly / monthly spend limits overall or per tool
+  (`[budget]`), with meters, projections, amber/red costs, footer alerts
+  and an optional bell; also in `aitop report` and `aitop doctor`.
+- Drill-down: Enter narrows a panel to a project, model or session
+  (repeatable, Esc to back out). `/` searches the table.
+- Live activity feed of the newest responses (`a`, or `feed = true`).
+- `aitop statusline` for tmux, shell prompts and Claude Code's status
+  line, with `--format` placeholders and `--color ansi|tmux`.
+
+### Changed
+
+- Enter now drills down; zoom is `z` only.
+- The footer fits as many key hints as the width allows and no longer
+  hides status messages on narrower terminals.
+
+### Fixed
+
+- Large initial scans were slow (quadratic de-duplication introduced in
+  the 2.0.0 restructure): 25k responses now merge in about 0.16 s
+  instead of 2.9 s.
+
 ## [2.0.0] - 2026-11-01
 
 A ground-up rewrite. aitop is no longer a fork of btop++: it is an
