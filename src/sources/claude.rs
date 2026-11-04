@@ -100,7 +100,7 @@ impl Source for ClaudeSource {
 
     fn scan(&mut self, ctx: &mut Ctx, out: &mut Vec<Event>) -> SourceStatus {
         let mut status = SourceStatus::new(Tool::Claude, &self.roots);
-        let paths = discover(&self.roots, |p| p.extension().is_some_and(|e| e == "jsonl"));
+        let paths = ctx.recent(discover(&self.roots, |p| p.extension().is_some_and(|e| e == "jsonl")));
         status.files = paths.len();
         prune(&mut self.files, &paths);
         for path in paths {
@@ -239,7 +239,7 @@ mod tests {
         let mut src = ClaudeSource::new(vec![dir.path().to_path_buf()]);
         let mut interner = Interner::default();
         let mut projects = ProjectResolver::new();
-        let mut ctx = Ctx { interner: &mut interner, projects: &mut projects };
+        let mut ctx = Ctx { interner: &mut interner, projects: &mut projects, since: None };
         let mut out = Vec::new();
         let st = src.scan(&mut ctx, &mut out);
         assert_eq!(st.files, 2);

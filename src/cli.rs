@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand};
 
 use crate::aggregate::Range;
-use crate::commands::report;
+use crate::commands::{report, statusline};
 
 #[derive(Parser)]
 #[command(name = "aitop", version, about = "Usage and cost dashboard for Claude Code and Codex CLI")]
@@ -38,6 +38,8 @@ pub enum Cmd {
         #[command(subcommand)]
         action: Option<PricingCmd>,
     },
+    /// Print a one-line summary for tmux, a shell prompt or Claude Code's status line.
+    Statusline(statusline::Args),
     /// List colour themes, or print one as a starting point for your own.
     Themes {
         #[command(subcommand)]

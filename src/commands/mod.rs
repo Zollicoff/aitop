@@ -4,6 +4,7 @@ pub mod dashboard;
 pub mod doctor;
 pub mod pricing;
 pub mod report;
+pub mod statusline;
 pub mod themes;
 
 use std::path::PathBuf;

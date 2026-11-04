@@ -24,6 +24,20 @@ pub use tail::{Change, Tail};
 pub struct Ctx<'a> {
     pub interner: &'a mut Interner,
     pub projects: &'a mut ProjectResolver,
+    /// Skip files not modified since this time (unix ms). Logs are append
+    /// only, so such files hold nothing newer. Used by one-shot commands
+    /// that only need recent usage.
+    pub since: Option<i64>,
+}
+
+impl Ctx<'_> {
+    /// Drop files that can't contain events at or after `since`.
+    pub fn recent(&self, paths: Vec<PathBuf>) -> Vec<PathBuf> {
+        match self.since {
+            Some(s) => paths.into_iter().filter(|p| files::modified(p).is_none_or(|m| m >= s)).collect(),
+            None => paths,
+        }
+    }
 }
 
 pub trait Source: Send {

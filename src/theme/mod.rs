@@ -195,6 +195,80 @@ fn gradient_raw(stops: [Color; 3], f: f64) -> Color {
     }
 }
 
+/// ANSI escape selecting `c` as the foreground (or background) colour, for
+/// output outside the dashboard.
+pub fn ansi(c: Color, background: bool) -> String {
+    let (base, bright, ext) = if background { (40, 100, 48) } else { (30, 90, 38) };
+    match c {
+        Color::Rgb(r, g, b) => format!("\x1b[{ext};2;{r};{g};{b}m"),
+        Color::Indexed(i) => format!("\x1b[{ext};5;{i}m"),
+        Color::Reset => format!("\x1b[{}m", if background { 49 } else { 39 }),
+        other => match ansi16(other) {
+            Some(i) if i < 8 => format!("\x1b[{}m", base + i),
+            Some(i) => format!("\x1b[{}m", bright + i - 8),
+            None => String::new(),
+        },
+    }
+}
+
+/// tmux style for `c` as the foreground, e.g. `#[fg=#e08a5f]`.
+pub fn tmux(c: Color) -> String {
+    const NAMES: [&str; 16] = [
+        "black",
+        "red",
+        "green",
+        "yellow",
+        "blue",
+        "magenta",
+        "cyan",
+        "white",
+        "brightblack",
+        "brightred",
+        "brightgreen",
+        "brightyellow",
+        "brightblue",
+        "brightmagenta",
+        "brightcyan",
+        "brightwhite",
+    ];
+    let name = match c {
+        Color::Rgb(r, g, b) => format!("#{r:02x}{g:02x}{b:02x}"),
+        Color::Indexed(i) => format!("colour{i}"),
+        Color::Reset => "default".into(),
+        other => ansi16(other).map(|i| NAMES[i as usize].to_string()).unwrap_or_else(|| "default".into()),
+    };
+    format!("#[fg={name}]")
+}
+
+/// Index 0-15 of a named ANSI colour.
+fn ansi16(c: Color) -> Option<u8> {
+    const ORDER: [Color; 16] = [
+        Color::Black,
+        Color::Red,
+        Color::Green,
+        Color::Yellow,
+        Color::Blue,
+        Color::Magenta,
+        Color::Cyan,
+        Color::Gray,
+        Color::DarkGray,
+        Color::LightRed,
+        Color::LightGreen,
+        Color::LightYellow,
+        Color::LightBlue,
+        Color::LightMagenta,
+        Color::LightCyan,
+        Color::White,
+    ];
+    ORDER.iter().position(|&o| o == c).map(|i| i as u8)
+}
+
+/// Theme colour for `c`'s role, converted for terminal output like the
+/// dashboard (respects NO_COLOR and 256-colour terminals).
+pub fn for_output(c: Color) -> Color {
+    out(c)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -234,5 +308,17 @@ mod tests {
         p.text = Color::Rgb(1, 2, 3);
         set(p);
         assert_eq!(current().text, Color::Rgb(1, 2, 3));
+    }
+
+    #[test]
+    fn escapes() {
+        assert_eq!(ansi(Color::Rgb(1, 2, 3), false), "\x1b[38;2;1;2;3m");
+        assert_eq!(ansi(Color::Red, false), "\x1b[31m");
+        assert_eq!(ansi(Color::LightCyan, true), "\x1b[106m");
+        assert_eq!(ansi(Color::Indexed(208), true), "\x1b[48;5;208m");
+        assert_eq!(ansi(Color::Reset, true), "\x1b[49m");
+        assert_eq!(tmux(Color::Rgb(224, 138, 95)), "#[fg=#e08a5f]");
+        assert_eq!(tmux(Color::DarkGray), "#[fg=brightblack]");
+        assert_eq!(tmux(Color::Indexed(9)), "#[fg=colour9]");
     }
 }

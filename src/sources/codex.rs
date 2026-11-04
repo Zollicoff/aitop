@@ -137,7 +137,7 @@ impl Source for CodexSource {
         let mut status = SourceStatus::new(Tool::Codex, &self.roots);
         // Rollout names start with a timestamp, so this is chronological,
         // which the resumed-session accounting relies on.
-        let paths = discover(&self.roots, |p| p.extension().is_some_and(|e| e == "jsonl"));
+        let paths = ctx.recent(discover(&self.roots, |p| p.extension().is_some_and(|e| e == "jsonl")));
         status.files = paths.len();
         prune(&mut self.files, &paths);
         for path in &paths {
@@ -325,7 +325,7 @@ mod tests {
         let mut src = CodexSource::new(vec![dir.path().to_path_buf()]);
         let mut interner = Interner::default();
         let mut projects = ProjectResolver::new();
-        let mut ctx = Ctx { interner: &mut interner, projects: &mut projects };
+        let mut ctx = Ctx { interner: &mut interner, projects: &mut projects, since: None };
         let mut out = Vec::new();
         src.scan(&mut ctx, &mut out);
         assert_eq!(out.len(), 2);

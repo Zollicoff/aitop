@@ -3,11 +3,10 @@
 use std::io::IsTerminal;
 
 use anyhow::Result;
-use ratatui::style::Color;
 
 use super::Context;
 use crate::paths::{config_dir, tilde};
-use crate::theme::{Palette, ThemeFile};
+use crate::theme::{self, Palette, ThemeFile};
 
 pub fn list(ctx: &Context) -> Result<()> {
     let color = std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none_or(|v| v.is_empty());
@@ -41,51 +40,10 @@ pub fn show(ctx: &Context, name: &str) -> Result<()> {
 
 /// A row of coloured blocks on the theme's background.
 fn swatch(p: &Palette) -> String {
-    let bg = sgr(p.background, true);
+    let bg = theme::ansi(p.background, true);
     let blocks: String = [p.claude, p.codex, p.text, p.dim, p.good, p.warn, p.bad]
         .iter()
-        .map(|&c| format!("{}██", sgr(c, false)))
+        .map(|&c| format!("{}██", theme::ansi(c, false)))
         .collect();
     format!("{bg} {blocks} \x1b[0m")
-}
-
-/// ANSI escape selecting `c` as foreground (or background).
-fn sgr(c: Color, background: bool) -> String {
-    let (base, bright, ext) = if background { (40, 100, 48) } else { (30, 90, 38) };
-    let ansi =
-        [Color::Black, Color::Red, Color::Green, Color::Yellow, Color::Blue, Color::Magenta, Color::Cyan, Color::Gray];
-    let light = [
-        Color::DarkGray,
-        Color::LightRed,
-        Color::LightGreen,
-        Color::LightYellow,
-        Color::LightBlue,
-        Color::LightMagenta,
-        Color::LightCyan,
-        Color::White,
-    ];
-    match c {
-        Color::Rgb(r, g, b) => format!("\x1b[{ext};2;{r};{g};{b}m"),
-        Color::Indexed(i) => format!("\x1b[{ext};5;{i}m"),
-        Color::Reset => format!("\x1b[{}m", if background { 49 } else { 39 }),
-        other => match (ansi.iter().position(|&a| a == other), light.iter().position(|&a| a == other)) {
-            (Some(i), _) => format!("\x1b[{}m", base + i),
-            (_, Some(i)) => format!("\x1b[{}m", bright + i),
-            _ => String::new(),
-        },
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn escapes() {
-        assert_eq!(sgr(Color::Rgb(1, 2, 3), false), "\x1b[38;2;1;2;3m");
-        assert_eq!(sgr(Color::Red, false), "\x1b[31m");
-        assert_eq!(sgr(Color::LightCyan, true), "\x1b[106m");
-        assert_eq!(sgr(Color::Indexed(208), true), "\x1b[48;5;208m");
-        assert_eq!(sgr(Color::Reset, true), "\x1b[49m");
-    }
 }

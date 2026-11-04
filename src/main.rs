@@ -55,6 +55,7 @@ fn run() -> Result<()> {
             commands::pricing::update(output.as_deref())
         }
         Some(Cmd::Pricing { action: Some(PricingCmd::Show { model }) }) => commands::pricing::show(&ctx, &model),
+        Some(Cmd::Statusline(args)) => commands::statusline::run(&ctx, &args),
         Some(Cmd::Themes { action: None }) => commands::themes::list(&ctx),
         Some(Cmd::Themes { action: Some(ThemesCmd::Show { name }) }) => commands::themes::show(&ctx, &name),
         Some(Cmd::Doctor) => commands::doctor::run(&ctx),

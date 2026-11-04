@@ -28,6 +28,12 @@ fn walk(dir: &Path, keep: &impl Fn(&Path) -> bool, out: &mut Vec<PathBuf>) {
     }
 }
 
+/// Last modification time (unix ms).
+pub fn modified(path: &Path) -> Option<i64> {
+    let t = std::fs::metadata(path).ok()?.modified().ok()?;
+    Some(t.duration_since(std::time::UNIX_EPOCH).ok()?.as_millis() as i64)
+}
+
 /// Forget per-file state for files that no longer exist.
 pub fn prune<T>(state: &mut HashMap<PathBuf, T>, present: &[PathBuf]) {
     let present: HashSet<&PathBuf> = present.iter().collect();

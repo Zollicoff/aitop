@@ -10,6 +10,6 @@ pub(crate) mod testutil;
 
 pub use block::Block;
 pub use filter::{Filter, FilterKind};
-pub use range::{local_midnight, Bucket, Range, Sort};
+pub use range::{local_midnight, Bucket, Range, Sort, HOUR};
 pub use rows::Row;
 pub use summary::{daily, summarize, Summary, ToolSummary};
