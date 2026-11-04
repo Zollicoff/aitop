@@ -16,10 +16,18 @@
 - Live activity feed of the newest responses (`a`, or `feed = true`).
 - `aitop statusline` for tmux, shell prompts and Claude Code's status
   line, with `--format` placeholders and `--color ansi|tmux`.
+- A btop-style menu on Esc (Options · Help · Quit). The Options screen
+  edits settings live and saves them to `config.toml`, keeping its
+  comments and layout.
+- Look settings: `theme_background` (off for transparent terminals),
+  `truecolor` (auto / on / off), `box_style` (rounded / plain / double /
+  thick), `graph_symbol` (braille / block / tty), `graph_color` (accent /
+  gradient), `chart` (cost / tokens) and `clock_format`.
 
 ### Changed
 
-- Enter now drills down; zoom is `z` only.
+- Enter now drills down; zoom is `z` only. Esc opens the menu once
+  there is nothing left to back out of.
 - The footer fits as many key hints as the width allows and no longer
   hides status messages on narrower terminals.
 

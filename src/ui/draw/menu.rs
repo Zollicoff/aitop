@@ -1,6 +1,6 @@
 //! The Esc menu and the Options screen.
 
-use ratatui::layout::{Alignment, Constraint, Layout, Rect};
+use ratatui::layout::{Alignment, Constraint, Layout, Margin, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Paragraph, Wrap};
@@ -128,11 +128,12 @@ fn draw_options(f: &mut Frame, area: Rect, app: &App, st: &OptionsState) {
 
     // Help for the selected setting, or the last error.
     if let Some(s) = items.get(st.selected) {
-        let mut text = vec![Line::from(dim(format!(" {}", s.help)))];
+        let mut text = vec![Line::from(dim(s.help))];
         if let Some(e) = &st.error {
-            text.insert(0, Line::from(Span::styled(format!(" {e}"), Style::new().fg(theme::bad()))));
+            text.insert(0, Line::from(Span::styled(e.clone(), Style::new().fg(theme::bad()))));
         }
-        f.render_widget(Paragraph::new(text).wrap(Wrap { trim: false }), help);
+        let help = help.inner(Margin { horizontal: 1, vertical: 0 });
+        f.render_widget(Paragraph::new(text).wrap(Wrap { trim: true }), help);
     }
     let hint = if st.editing.is_some() {
         " type a value · enter to save · esc to cancel"

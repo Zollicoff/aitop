@@ -17,7 +17,8 @@ Inspired by [btop](https://github.com/aristocratos/btop).
 - **Limits.** Claude's current 5-hour window with burn rate and projected spend; Codex's 5-hour and weekly rate-limit usage straight from its logs.
 - **Budgets.** Set daily, weekly or monthly spend limits, overall or per tool, and get warned as you approach them.
 - **Live activity feed.** Every response as it lands: tool, project, model, tokens and cost.
-- **Themes.** Eight built in (Dracula, Gruvbox, Nord, Catppuccin, Tokyo Night, Solarized Light, your terminal's own colours, and the default), plus your own in TOML.
+- **Themes and looks.** Eight themes built in (Dracula, Gruvbox, Nord, Catppuccin, Tokyo Night, Solarized Light, your terminal's own colours, and the default) plus your own in TOML; transparent backgrounds; braille, block or TTY graphs; four box styles.
+- **Options menu, like btop.** Esc opens Options · Help · Quit; every setting can be changed live and is saved to your config file, comments and all.
 - **Status line.** `aitop statusline` puts today's spend, the 5-hour window and budgets in tmux, your prompt or Claude Code's status line.
 - **History that outlives the logs.** Claude Code deletes transcripts after 30 days; aitop keeps a compact copy of every usage record in `~/.local/share/aitop/history.jsonl`, so "all time" really means all time.
 - **Scriptable.** `aitop report` prints the same numbers as a table or JSON.
@@ -69,9 +70,11 @@ aitop config > ~/.config/aitop/config.toml   # start a config file
 | `s` | sort by cost · tokens · recent · name |
 | `z` | zoom the focused tool, with details for the selected row |
 | `a` | show / hide the live activity feed |
-| `t` / `T` | next / previous theme |
+| `t` / `T` | next / previous theme (for this session; save it in Options) |
 | `r` | rescan now |
-| `?` | help, data locations and pricing info |
+| `esc` | back out of search / drill-down / zoom; then the menu: Options · Help · Quit |
+| `o` / `F2` | Options |
+| `?` / `F1` | help, data locations and pricing info |
 | `q` | quit |
 
 The mouse works too: click tabs and ranges, scroll tables.
@@ -105,7 +108,11 @@ cost = input × input_price + output × output_price
 
 ## Configuration
 
-`~/.config/aitop/config.toml` (all optional; `aitop config` prints a commented example):
+![Options](docs/options.png)
+
+Most settings can be changed from the dashboard: press `Esc` (or `o`) for **Options**. Use `←` `→` to change a value (Enter to type a number), and `Tab` to move between the General, Display and Budgets sections. Changes apply immediately and are saved to your config file without disturbing its comments or layout.
+
+The file is `~/.config/aitop/config.toml` (all optional; `aitop config` prints a commented example):
 
 ```toml
 refresh_seconds = 2.0
@@ -115,6 +122,13 @@ active_minutes = 5          # "active" = produced output in the last N minutes
 hide_missing = false        # hide the panel of a tool that isn't installed
 feed = false                # start with the activity feed open
 theme = "aitop"             # see `aitop themes`
+theme_background = true     # false: keep the terminal's background (transparency)
+truecolor = "auto"          # auto | on | off (256 colours)
+box_style = "rounded"       # rounded | plain | double | thick
+graph_symbol = "block"      # braille | block | tty
+graph_color = "accent"      # accent (tool colour) | gradient (by height)
+chart = "cost"              # cost | tokens
+clock_format = "%H:%M:%S"   # strftime; "" hides the clock
 
 [budget]                    # USD; see "Budgets" below
 daily = 20.0
@@ -129,7 +143,13 @@ output = 4.0
 cache_read = 0.1
 ```
 
-`NO_COLOR` disables colour; truecolor is used when the terminal advertises it, otherwise the 256-colour palette.
+`NO_COLOR` disables colour. With `truecolor = "auto"`, 24-bit colour is used when the terminal advertises it (`COLORTERM`), otherwise the nearest of 256 colours.
+
+### Looks
+
+- **Transparent background:** themes with a background colour paint it everywhere. Set `theme_background = false` (Options → Display → Theme background) to keep your terminal's own background instead, so a transparent or translucent terminal shows through while keeping the theme's other colours.
+- **Graphs:** `braille` draws with braille dots for the most detail (needs a font with braille characters, which most have), `block` uses solid bars, and `tty` uses shade characters that work even on a bare Linux console. `graph_color = "gradient"` colours them by height using the theme's gradient, like btop.
+- **Boxes:** `rounded`, `plain`, `double` or `thick` borders.
 
 ### Themes
 
@@ -221,8 +241,10 @@ src/
   aggregate/       ranges, per-project/model/session rows, drill-down filters, 5-hour windows
   budget.rs        spend budgets and their periods
   pricing/         price table, cost maths, LiteLLM import
-  theme/           palette, theme files, built-in themes (builtin/*.toml)
-  ui/              dashboard state, input, drill-down/search, and draw/ (one module per region)
+  theme/           palette, theme files, built-in themes (builtin/*.toml), look settings
+  ui/              dashboard state, input, drill-down/search, menus/options, and draw/ (one module per region)
+  appearance.rs    look-and-feel choices (graph symbols, box styles, …)
+  settings.rs      saving single settings back to config.toml
   event.rs  limits.rs  project.rs  store.rs  config.rs  paths.rs  format.rs
 ```
 
