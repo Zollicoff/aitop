@@ -1,6 +1,7 @@
 //! aitop — a btop-style terminal dashboard for AI coding tool usage.
 
 mod aggregate;
+mod appearance;
 mod budget;
 mod cli;
 mod collector;
@@ -12,6 +13,7 @@ mod limits;
 mod paths;
 mod pricing;
 mod project;
+mod settings;
 mod sources;
 mod store;
 mod theme;
@@ -38,6 +40,7 @@ fn run() -> Result<()> {
     let themes = theme::ThemeSet::load(&paths::config_dir().join("themes"));
     let selected = themes.get(cli.theme.as_deref().or(cfg.theme.as_deref()).unwrap_or("aitop"))?.clone();
     theme::set(selected.palette);
+    theme::set_look(theme::Look::from_config(&cfg));
     let ctx = Context {
         history: (cfg.history && !cli.no_history).then(store::Store::default_path),
         range: cli.range.or_else(|| Range::parse(&cfg.default_range)).unwrap_or(Range::Today),

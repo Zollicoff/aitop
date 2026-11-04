@@ -3,7 +3,7 @@
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, BorderType, Paragraph};
+use ratatui::widgets::{Block, Paragraph};
 use ratatui::Frame;
 
 use super::stats::draw_stats;
@@ -77,5 +77,5 @@ fn panel_block(tool: Tool, ts: &ToolSummary, focused: bool, range: Range, crumbs
     } else {
         Line::from(vec![dim(" today "), val(format::cost(ts.today_cost)), Span::raw(" ")]).right_aligned()
     };
-    Block::bordered().border_type(BorderType::Rounded).border_style(edge).title(title).title(today)
+    Block::bordered().border_type(theme::border_type()).border_style(edge).title(title).title(today)
 }

@@ -10,14 +10,15 @@ use chrono::Local;
 use ratatui::layout::Rect;
 use ratatui::widgets::TableState;
 
+use super::menu::Menu;
 use super::Options;
 use crate::aggregate::{summarize, Filter, Range, Row, Sort, Summary, ToolSummary};
 use crate::budget::{self, Budget, Level, Period};
 use crate::collector::{Command, Shared};
+use crate::config::Config;
 use crate::event::{Event, Tool};
 use crate::limits::RateLimits;
 use crate::sources::SourceStatus;
-use crate::theme;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum View {
@@ -96,7 +97,9 @@ impl PanelState {
 pub struct App {
     data: Shared,
     pub(super) tx: Sender<Command>,
-    opts: Options,
+    pub(super) opts: Options,
+    /// The Esc menu or the Options screen, when open.
+    pub menu: Option<Menu>,
     pub range: Range,
     pub sort: Sort,
     pub focus: Tool,
@@ -158,7 +161,7 @@ impl App {
             tx,
             range: opts.range,
             theme: opts.theme.clone(),
-            show_feed: opts.show_feed,
+            show_feed: opts.cfg.feed,
             feed: Vec::new(),
             opts,
             sort: Sort::Cost,
@@ -166,6 +169,7 @@ impl App {
             panels: Tool::ALL.iter().map(|_| PanelState::default()).collect(),
             zoom: false,
             help: false,
+            menu: None,
             summary: None,
             summary_key: None,
             filters_rev: 0,
@@ -205,10 +209,10 @@ impl App {
         let recomputed = self.summary_key != Some(key);
         if recomputed {
             let filters: Vec<Vec<Filter>> = self.panels.iter().map(PanelState::filters).collect();
-            let s = summarize(&d.events, self.range, self.sort, now, self.opts.active_window_ms, &filters);
+            let s = summarize(&d.events, self.range, self.sort, now, self.active_window_ms(), &filters);
             self.summary = Some(Arc::new(s));
             self.summary_key = Some(key);
-            self.budgets = budget::evaluate(&d.events, &self.opts.budget, now);
+            self.budgets = budget::evaluate(&d.events, &self.opts.cfg.budget, now);
             self.feed = d.events.iter().rev().take(FEED_LEN).cloned().collect();
         }
         self.snap = Snapshot {
@@ -253,7 +257,7 @@ impl App {
     pub fn visible(&self) -> Vec<Tool> {
         let shown: Vec<Tool> = Tool::ALL
             .into_iter()
-            .filter(|&t| !self.opts.hide_missing || self.detected(t) || self.has_data(t))
+            .filter(|&t| !self.opts.cfg.hide_missing || self.detected(t) || self.has_data(t))
             .collect();
         if shown.is_empty() {
             Tool::ALL.to_vec()
@@ -268,6 +272,19 @@ impl App {
             Some(s) => rows_for(s.tool(t), p.view, &p.query),
             None => Vec::new(),
         }
+    }
+
+    pub fn cfg(&self) -> &Config {
+        &self.opts.cfg
+    }
+
+    /// Recompute summaries and budgets on the next refresh.
+    pub(super) fn invalidate(&mut self) {
+        self.summary_key = None;
+    }
+
+    fn active_window_ms(&self) -> i64 {
+        (self.opts.cfg.active_minutes.max(1) * 60_000) as i64
     }
 
     pub fn config_path(&self) -> &PathBuf {
@@ -317,7 +334,7 @@ impl App {
         let text =
             format!("⚠ {} {what}: {} of {}", b.name(), crate::format::cost(b.spent), crate::format::cost(b.limit));
         self.flash = Some(Flash { text, until: Instant::now() + Duration::from_secs(15), level: b.level });
-        if self.opts.budget.bell {
+        if self.opts.cfg.budget.bell {
             use std::io::Write;
             let mut out = std::io::stdout();
             let _ = out.write_all(b"\x07").and_then(|_| out.flush());
@@ -326,10 +343,8 @@ impl App {
 
     /// Switch to the theme `delta` steps away in the list.
     pub(super) fn cycle_theme(&mut self, delta: isize) {
-        let t = self.opts.themes.cycle(&self.theme, delta).clone();
-        theme::set(t.palette);
-        self.flash(format!("theme: {} · set theme = \"{}\" in the config to keep it", t.name, t.key));
-        self.theme = t.key;
+        self.set_theme(delta);
+        self.flash(format!("theme: {} · Esc → Options to keep it", self.theme_name()));
     }
 
     pub fn theme_name(&self) -> &str {

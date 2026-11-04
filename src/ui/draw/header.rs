@@ -54,6 +54,6 @@ pub(super) fn draw_header(f: &mut Frame, area: Rect, app: &mut App) {
         spans.extend(meter(b.fraction(), 8, true));
     }
     f.render_widget(Paragraph::new(Line::from(spans)), area);
-    let clock = Local::now().format("%H:%M:%S ").to_string();
+    let clock = format::clock(Local::now(), &app.cfg().clock_format).map(|c| c + " ").unwrap_or_default();
     f.render_widget(Paragraph::new(Line::from(dim(clock))).alignment(Alignment::Right), area);
 }

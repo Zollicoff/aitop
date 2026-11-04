@@ -13,6 +13,10 @@ use std::cell::Cell;
 use std::sync::OnceLock;
 
 use ratatui::style::{Color, Modifier, Style};
+use ratatui::widgets::BorderType;
+
+use crate::appearance::{BoxStyle, TrueColor};
+use crate::config::Config;
 
 use crate::event::Tool;
 
@@ -54,6 +58,39 @@ pub fn current() -> Palette {
     CURRENT.with(|c| c.get())
 }
 
+/// Display settings that apply on top of the palette.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Look {
+    /// Paint the theme's background (off: the terminal's own shows through).
+    pub theme_background: bool,
+    pub truecolor: TrueColor,
+    pub boxes: BoxStyle,
+}
+
+impl Default for Look {
+    fn default() -> Self {
+        Look { theme_background: true, truecolor: TrueColor::Auto, boxes: BoxStyle::Rounded }
+    }
+}
+
+impl Look {
+    pub fn from_config(cfg: &Config) -> Look {
+        Look { theme_background: cfg.theme_background, truecolor: cfg.truecolor, boxes: cfg.box_style }
+    }
+}
+
+thread_local! {
+    static LOOK: Cell<Look> = Cell::new(Look::default());
+}
+
+pub fn set_look(l: Look) {
+    LOOK.with(|c| c.set(l));
+}
+
+pub fn look() -> Look {
+    LOOK.with(|c| c.get())
+}
+
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum Mode {
     TrueColor,
@@ -61,7 +98,8 @@ enum Mode {
     None,
 }
 
-fn mode() -> Mode {
+/// What the environment says: NO_COLOR, or whether truecolor is advertised.
+fn detected() -> Mode {
     static MODE: OnceLock<Mode> = OnceLock::new();
     *MODE.get_or_init(|| {
         if std::env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty()) {
@@ -78,6 +116,25 @@ fn mode() -> Mode {
             Mode::Ansi256
         }
     })
+}
+
+fn mode() -> Mode {
+    match (detected(), look().truecolor) {
+        (Mode::None, _) => Mode::None,
+        (m, TrueColor::Auto) => m,
+        (_, TrueColor::On) => Mode::TrueColor,
+        (_, TrueColor::Off) => Mode::Ansi256,
+    }
+}
+
+/// Border drawing for panels and popups.
+pub fn border_type() -> BorderType {
+    match look().boxes {
+        BoxStyle::Rounded => BorderType::Rounded,
+        BoxStyle::Plain => BorderType::Plain,
+        BoxStyle::Double => BorderType::Double,
+        BoxStyle::Thick => BorderType::Thick,
+    }
 }
 
 /// Convert a theme colour for this terminal.
@@ -126,7 +183,11 @@ pub fn accent(t: Tool) -> Color {
 }
 
 pub fn background() -> Color {
-    out(current().background)
+    if look().theme_background {
+        out(current().background)
+    } else {
+        Color::Reset
+    }
 }
 
 pub fn border() -> Color {

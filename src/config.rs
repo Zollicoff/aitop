@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use serde::Deserialize;
 
+use crate::appearance::{BoxStyle, ChartMetric, GraphColor, GraphSymbol, TrueColor};
 use crate::budget::BudgetConfig;
 use crate::event::Tool;
 use crate::paths::{config_file, expand};
@@ -28,6 +29,17 @@ pub struct Config {
     pub feed: bool,
     /// Colour theme: a built-in name or a file in `~/.config/aitop/themes`.
     pub theme: Option<String>,
+    /// Paint the theme's background. Off keeps the terminal's own, so a
+    /// transparent or translucent terminal shows through.
+    pub theme_background: bool,
+    pub truecolor: TrueColor,
+    pub box_style: BoxStyle,
+    pub graph_symbol: GraphSymbol,
+    pub graph_color: GraphColor,
+    /// What the per-tool chart plots.
+    pub chart: ChartMetric,
+    /// strftime format for the header clock; empty hides it.
+    pub clock_format: String,
     pub paths: PathsConfig,
     pub budget: BudgetConfig,
     /// Per-model price overrides in USD per million tokens.
@@ -51,6 +63,13 @@ impl Default for Config {
             hide_missing: false,
             feed: false,
             theme: None,
+            theme_background: true,
+            truecolor: TrueColor::Auto,
+            box_style: BoxStyle::Rounded,
+            graph_symbol: GraphSymbol::Block,
+            graph_color: GraphColor::Accent,
+            chart: ChartMetric::Cost,
+            clock_format: "%H:%M:%S".into(),
             paths: PathsConfig::default(),
             budget: BudgetConfig::default(),
             pricing: BTreeMap::new(),
@@ -108,6 +127,26 @@ feed = false
 # tokyo-night. Custom themes go in ~/.config/aitop/themes/NAME.toml; run
 # `aitop themes` to list them and `aitop themes show dracula` for a template.
 # theme = "aitop"
+
+# Paint the theme's background colour. Set to false to keep the terminal's
+# own background, e.g. to let a transparent or translucent terminal show.
+theme_background = true
+
+# Colour depth: "auto" (detect), "on" (24-bit), "off" (256 colours).
+truecolor = "auto"
+
+# Panel borders: "rounded", "plain", "double" or "thick".
+box_style = "rounded"
+
+# Graphs: "braille" (finest), "block" or "tty" (shade characters for a bare
+# console); coloured by tool ("accent") or by height ("gradient"); plotting
+# "cost" or "tokens".
+graph_symbol = "block"
+graph_color = "accent"
+chart = "cost"
+
+# Header clock (strftime format); "" hides it.
+clock_format = "%H:%M:%S"
 
 # Spend budgets in USD, for today / this week / this month. Budgets under
 # [budget] cover all tools; [budget.claude] and [budget.codex] cover one.

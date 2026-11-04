@@ -91,6 +91,17 @@ pub fn short_model(m: &str) -> String {
     s
 }
 
+/// Format a time with a user-supplied strftime pattern. `None` for an empty
+/// pattern; an invalid one falls back to `%H:%M:%S` rather than panicking.
+pub fn clock(t: chrono::DateTime<chrono::Local>, pattern: &str) -> Option<String> {
+    use chrono::format::{Item, StrftimeItems};
+    if pattern.trim().is_empty() {
+        return None;
+    }
+    let valid = !StrftimeItems::new(pattern).any(|i| matches!(i, Item::Error));
+    Some(t.format(if valid { pattern } else { "%H:%M:%S" }).to_string())
+}
+
 /// Truncate to `width` display columns, adding an ellipsis.
 pub fn truncate(s: &str, width: usize) -> String {
     if width == 0 {
@@ -127,5 +138,10 @@ mod tests {
         assert_eq!(short_model("claude-opus-4-5-20251101"), "opus-4-5");
         assert_eq!(short_model("gpt-5.1-codex"), "gpt-5.1-codex");
         assert_eq!(truncate("abcdef", 4), "abc…");
+        let t = chrono::TimeZone::with_ymd_and_hms(&chrono::Local, 2026, 1, 2, 15, 4, 5).unwrap();
+        assert_eq!(clock(t, "%H:%M").as_deref(), Some("15:04"));
+        assert_eq!(clock(t, "%I:%M %p").as_deref(), Some("03:04 PM"));
+        assert_eq!(clock(t, "%Q"), Some("15:04:05".into()), "invalid falls back");
+        assert_eq!(clock(t, ""), None);
     }
 }

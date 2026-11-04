@@ -17,12 +17,9 @@ pub fn run(ctx: &Context, refresh: Option<f64>) -> Result<()> {
     let (data, tx) = collector::spawn(collector, Duration::from_secs_f64(secs));
     let opts = ui::Options {
         range: ctx.range,
-        active_window_ms: ctx.active_window_ms,
-        hide_missing: ctx.cfg.hide_missing,
-        show_feed: ctx.cfg.feed,
+        cfg: ctx.cfg.clone(),
         config_path: ctx.config_path.clone(),
         themes: ctx.themes.clone(),
-        budget: ctx.cfg.budget.clone(),
         theme: ctx.theme.clone(),
     };
     ui::run(data, tx, opts)

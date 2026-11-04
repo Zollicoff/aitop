@@ -3,6 +3,7 @@
 mod app;
 mod draw;
 mod input;
+mod menu;
 mod nav;
 #[cfg(test)]
 mod tests;
@@ -17,20 +18,18 @@ use ratatui::crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, E
 use ratatui::crossterm::execute;
 
 use crate::aggregate::Range;
-use crate::budget::BudgetConfig;
 use crate::collector::{Command, Shared};
+use crate::config::Config;
 use crate::theme::ThemeSet;
 use app::App;
 
 pub struct Options {
     pub range: Range,
-    pub active_window_ms: i64,
-    pub hide_missing: bool,
-    /// Start with the activity feed open.
-    pub show_feed: bool,
+    /// The loaded configuration; the options screen edits it and saves it
+    /// back to `config_path`.
+    pub cfg: Config,
     pub config_path: PathBuf,
     pub themes: ThemeSet,
-    pub budget: BudgetConfig,
     /// Key of the active theme.
     pub theme: String,
 }

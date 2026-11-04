@@ -4,7 +4,7 @@ use chrono::{Local, TimeZone};
 use ratatui::layout::{Constraint, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, BorderType, Cell, Row as TRow, Table};
+use ratatui::widgets::{Block, Cell, Row as TRow, Table};
 use ratatui::Frame;
 
 use super::widgets::{dim, val};
@@ -34,7 +34,7 @@ pub(super) fn draw_feed(f: &mut Frame, area: Rect, app: &App) {
         Span::styled("├", Style::new().fg(theme::border())),
     ]);
     let block = Block::bordered()
-        .border_type(BorderType::Rounded)
+        .border_type(theme::border_type())
         .border_style(Style::new().fg(theme::border()))
         .title(title)
         .title(Line::from(dim(" a to hide ")).right_aligned());

@@ -48,16 +48,9 @@ pub(crate) fn app_with(theme_key: &str, budget: BudgetConfig) -> (App, Shared) {
         ..Default::default()
     };
     let (tx, _rx) = mpsc::channel();
-    let opts = Options {
-        range: Range::Week,
-        active_window_ms: 5 * 60_000,
-        hide_missing: false,
-        show_feed: false,
-        config_path: dir.join("config.toml"),
-        themes,
-        theme: theme_key.into(),
-        budget,
-    };
+    let cfg = crate::config::Config { budget, ..Default::default() };
+    let opts =
+        Options { range: Range::Week, cfg, config_path: dir.join("config.toml"), themes, theme: theme_key.into() };
     let shared: Shared = Arc::new(RwLock::new(data));
     let mut app = App::new(shared.clone(), tx, opts);
     app.refresh();
@@ -140,4 +133,26 @@ fn activity_feed_lists_newest_first() {
     let codex = feed.iter().position(|l| l.contains("Codex") && l.contains("$0.75")).unwrap();
     let claude = feed.iter().position(|l| l.contains("Claude Code") && l.contains("$2.50")).unwrap();
     assert!(codex < claude, "newest first: {feed:?}");
+}
+
+#[test]
+fn theme_background_can_be_turned_off() {
+    let mut a = app("dracula");
+    theme::set_look(theme::Look { theme_background: false, ..theme::look() });
+    let buf = render(&mut a, 120, 36);
+    let selection = theme::select_bg();
+    assert!(
+        buf.content.iter().all(|c| c.bg == ratatui::style::Color::Reset || c.bg == selection),
+        "only the selection keeps a background"
+    );
+    theme::set_look(theme::Look::default());
+}
+
+#[test]
+fn box_style_applies() {
+    let mut a = app("aitop");
+    theme::set_look(theme::Look { boxes: crate::appearance::BoxStyle::Double, ..theme::Look::default() });
+    let out = text(&render(&mut a, 120, 36));
+    theme::set_look(theme::Look::default());
+    assert!(out.contains('╔') && !out.contains('╭'), "{out}");
 }

@@ -3,8 +3,10 @@
 mod chart;
 mod feed;
 mod footer;
+mod graph;
 mod header;
 mod help;
+mod menu;
 mod panel;
 mod stats;
 mod table;
@@ -13,13 +15,14 @@ mod widgets;
 use ratatui::layout::{Alignment, Constraint, Layout, Rect};
 use ratatui::style::Style;
 use ratatui::text::Line;
-use ratatui::widgets::{Block, BorderType, Paragraph};
+use ratatui::widgets::{Block, Paragraph};
 use ratatui::Frame;
 
 use feed::draw_feed;
 use footer::draw_footer;
 use header::draw_header;
 use help::draw_help;
+use menu::draw_menu;
 use panel::draw_panel;
 use widgets::dim;
 
@@ -40,6 +43,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     if app.help {
         draw_help(f, area, app);
     }
+    draw_menu(f, area, app);
 }
 
 fn draw_body(f: &mut Frame, area: Rect, app: &mut App) {
@@ -91,6 +95,6 @@ fn draw_welcome(f: &mut Frame, area: Rect, app: &App) {
     lines.push(Line::from(""));
     lines.push(Line::from(dim("Use one of them, or point aitop elsewhere in the config file:")));
     lines.push(Line::from(dim(format!("  {}", tilde(app.config_path())))));
-    let block = Block::bordered().border_type(BorderType::Rounded).border_style(Style::new().fg(theme::border()));
+    let block = Block::bordered().border_type(theme::border_type()).border_style(Style::new().fg(theme::border()));
     f.render_widget(Paragraph::new(lines).alignment(Alignment::Center).block(block), area);
 }

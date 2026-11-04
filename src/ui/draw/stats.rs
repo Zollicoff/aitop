@@ -44,7 +44,7 @@ pub(super) fn draw_stats(f: &mut Frame, area: Rect, app: &App, tool: Tool, ts: &
     let [text_area, chart_area] = Layout::vertical([Constraint::Length(text_h), Constraint::Fill(1)]).areas(area);
     f.render_widget(Paragraph::new(lines), text_area);
     if chart_area.height >= 3 {
-        draw_chart(f, chart_area, summary, tool, ts);
+        draw_chart(f, chart_area, app, summary, tool, ts);
     }
 }
 

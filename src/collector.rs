@@ -183,10 +183,12 @@ impl Dataset {
 
 pub enum Command {
     Rescan,
+    /// Change how often the logs are rescanned.
+    SetInterval(Duration),
 }
 
 /// Run the collector on a background thread, rescanning every `interval`.
-pub fn spawn(mut c: Collector, interval: Duration) -> (Shared, Sender<Command>) {
+pub fn spawn(mut c: Collector, mut interval: Duration) -> (Shared, Sender<Command>) {
     let data = c.data.clone();
     let (tx, rx) = mpsc::channel();
     std::thread::Builder::new()
@@ -197,6 +199,7 @@ pub fn spawn(mut c: Collector, interval: Duration) -> (Shared, Sender<Command>) 
                 c.scan();
                 match rx.recv_timeout(interval) {
                     Ok(Command::Rescan) | Err(RecvTimeoutError::Timeout) => {}
+                    Ok(Command::SetInterval(d)) => interval = d,
                     Err(RecvTimeoutError::Disconnected) => break,
                 }
             }

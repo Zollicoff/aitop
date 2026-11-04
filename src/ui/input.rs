@@ -27,6 +27,10 @@ impl App {
             self.quit = true;
             return;
         }
+        if self.menu.is_some() {
+            self.on_menu_key(k);
+            return;
+        }
         if self.searching {
             self.on_search_key(k);
             return;
@@ -34,12 +38,17 @@ impl App {
         let f = self.focus;
         match k.code {
             KeyCode::Char('q') => self.quit = true,
-            // Esc backs out one step: search, then drill-down, then zoom.
+            // Esc backs out one step (search, drill-down, zoom), then opens the menu.
             KeyCode::Esc => {
                 if !self.clear_search() && !self.drill_out() {
-                    self.zoom = false;
+                    if self.zoom {
+                        self.zoom = false;
+                    } else {
+                        self.open_menu();
+                    }
                 }
             }
+            KeyCode::Char('o') | KeyCode::F(2) => self.open_options(),
             KeyCode::Backspace => {
                 self.drill_out();
             }

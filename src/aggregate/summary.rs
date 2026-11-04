@@ -24,6 +24,8 @@ pub struct ToolSummary {
     pub session_rows: Vec<Row>,
     /// Cost per bucket (see `Summary::buckets`).
     pub series: Vec<f64>,
+    /// Tokens per bucket.
+    pub series_tokens: Vec<u64>,
     /// Most recent activity, regardless of range.
     pub last_ts: Option<i64>,
     pub active_sessions: usize,
@@ -134,6 +136,7 @@ fn summarize_tool(tool: Tool, input: &Input) -> ToolSummary {
     let mut total = Acc::default();
     let (mut projects, mut models, mut sessions) = (Groups::default(), Groups::default(), Groups::default());
     let mut series = vec![0.0; input.buckets.len()];
+    let mut series_tokens = vec![0u64; input.buckets.len()];
     let mut unpriced = BTreeSet::new();
     for e in input.selected(input.in_range, tool) {
         total.add(e);
@@ -146,6 +149,7 @@ fn summarize_tool(tool: Tool, input: &Input) -> ToolSummary {
         // Bucket = last start at or before the event.
         if let Some(i) = input.buckets.partition_point(|&b| b <= e.ts).checked_sub(1) {
             series[i] += e.cost;
+            series_tokens[i] += e.tokens.total();
         }
     }
     let mut project_rows = projects.into_rows(input.sort, |a| a.detail());
@@ -165,6 +169,7 @@ fn summarize_tool(tool: Tool, input: &Input) -> ToolSummary {
         models: models.into_rows(input.sort, |_| String::new()),
         session_rows: sessions.into_rows(input.sort, Acc::top_model),
         series,
+        series_tokens,
         last_ts,
         active_sessions,
         today_cost,
@@ -232,6 +237,7 @@ mod tests {
         assert_eq!(c.last_ts, Some(n - 30_000));
         assert_eq!(week.buckets.len(), 7);
         assert!((c.series.iter().sum::<f64>() - 3.5).abs() < 1e-9);
+        assert_eq!(c.series_tokens.iter().sum::<u64>(), c.tokens.total());
         // same folder name in two places is disambiguated
         let names: Vec<&str> = c.projects.iter().map(|r| r.name.as_str()).collect();
         assert_eq!(names, ["b/web", "a/web", "api"]);

@@ -3,7 +3,7 @@
 use ratatui::layout::Rect;
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, BorderType, Clear, Paragraph};
+use ratatui::widgets::{Block, Clear, Paragraph};
 use ratatui::Frame;
 
 use crate::format;
@@ -37,6 +37,7 @@ pub(super) fn draw_help(f: &mut Frame, area: Rect, app: &App) {
         key("a", "show / hide the live activity feed"),
         key("t  T", "next / previous theme"),
         key("r", "rescan logs now"),
+        key("esc  o", "menu (Options · Help · Quit) · o / F2 opens Options"),
         key("q  ctrl-c", "quit"),
         Line::from(""),
         head("Data"),
@@ -103,7 +104,7 @@ pub(super) fn draw_help(f: &mut Frame, area: Rect, app: &App) {
         dim,
     )));
     let block = Block::bordered()
-        .border_type(BorderType::Rounded)
+        .border_type(theme::border_type())
         .border_style(Style::new().fg(theme::dim()))
         .title(Line::from(Span::styled(" aitop help ", Style::new().fg(theme::bright()).bold())))
         .title(Line::from(Span::styled(" esc to close ", dim)).right_aligned())
