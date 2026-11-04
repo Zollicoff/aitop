@@ -1,5 +1,7 @@
 //! Bottom line: key hints and status messages.
 
+use std::time::Instant;
+
 use ratatui::layout::{Alignment, Rect};
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
@@ -7,6 +9,8 @@ use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 use super::widgets::dim;
+use super::widgets::level_color;
+use crate::budget::Level;
 use crate::format;
 use crate::theme;
 use crate::ui::app::App;
@@ -33,11 +37,10 @@ pub(super) fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
     }
     f.render_widget(Paragraph::new(Line::from(spans)), area);
 
-    let status: Option<Span> = if let Some((msg, at)) = &app.flash {
-        (at.elapsed().as_secs() < 3).then(|| dim(format!("{msg} ")))
-    } else {
-        None
-    };
+    let status: Option<Span> = app.flash.as_ref().filter(|f| Instant::now() < f.until).map(|f| match f.level {
+        Level::Ok => dim(format!("{} ", f.text)),
+        level => Span::styled(format!("{} ", f.text), Style::new().fg(level_color(level)).bold()),
+    });
     let status = status.or_else(|| {
         if !app.snap.loaded {
             return Some(Span::styled("scanning logs… ", Style::new().fg(theme::warn())));
@@ -45,6 +48,15 @@ pub(super) fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
         if let Some(e) = &app.snap.history_error {
             return Some(Span::styled(
                 format!("⚠ history: {} ", format::truncate(e, 40)),
+                Style::new().fg(theme::bad()),
+            ));
+        }
+        // A budget that is used up stays visible until its period resets.
+        if let Some(b) =
+            app.budgets.iter().filter(|b| b.level == Level::Over).max_by(|a, b| a.fraction().total_cmp(&b.fraction()))
+        {
+            return Some(Span::styled(
+                format!("⚠ over {}: {} of {} ", b.name(), format::cost(b.spent), format::cost(b.limit)),
                 Style::new().fg(theme::bad()),
             ));
         }

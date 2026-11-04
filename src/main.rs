@@ -1,6 +1,7 @@
 //! aitop — a btop-style terminal dashboard for AI coding tool usage.
 
 mod aggregate;
+mod budget;
 mod cli;
 mod collector;
 mod commands;

@@ -16,6 +16,7 @@ use ratatui::crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, E
 use ratatui::crossterm::execute;
 
 use crate::aggregate::Range;
+use crate::budget::BudgetConfig;
 use crate::collector::{Command, Shared};
 use crate::theme::ThemeSet;
 use app::App;
@@ -26,6 +27,7 @@ pub struct Options {
     pub hide_missing: bool,
     pub config_path: PathBuf,
     pub themes: ThemeSet,
+    pub budget: BudgetConfig,
     /// Key of the active theme.
     pub theme: String,
 }

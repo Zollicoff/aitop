@@ -8,6 +8,7 @@ use serde::Serialize;
 
 use super::Context;
 use crate::aggregate::{daily, summarize, Block, Range, Row, Sort, Summary};
+use crate::budget::{self, Budget, Level};
 use crate::event::{Event, Tokens, Tool};
 use crate::format;
 
@@ -51,8 +52,10 @@ impl By {
 pub fn run(ctx: &Context, args: &Args) -> Result<()> {
     let c = ctx.snapshot();
     let d = c.data.read().unwrap();
-    let summary = summarize(&d.events, ctx.range, args.sort, Local::now(), ctx.active_window_ms);
-    let report = Report::new(&summary, &d.events, args);
+    let now = Local::now();
+    let summary = summarize(&d.events, ctx.range, args.sort, now, ctx.active_window_ms);
+    let budgets = budget::evaluate(&d.events, &ctx.cfg.budget, now);
+    let report = Report::new(&summary, &d.events, &budgets, args);
     if args.json {
         println!("{}", serde_json::to_string_pretty(&report.json())?);
     } else {
@@ -66,10 +69,12 @@ struct Report<'a> {
     summary: &'a Summary,
     by: By,
     sections: Vec<(Tool, Vec<Row>)>,
+    /// Budgets for the selected tools (plus all-tools budgets).
+    budgets: Vec<&'a Budget>,
 }
 
 impl<'a> Report<'a> {
-    fn new(summary: &'a Summary, events: &[Event], args: &Args) -> Self {
+    fn new(summary: &'a Summary, events: &[Event], budgets: &'a [Budget], args: &Args) -> Self {
         let sections = Tool::ALL
             .into_iter()
             .filter(|t| args.tool.is_none_or(|o| o == *t))
@@ -84,7 +89,9 @@ impl<'a> Report<'a> {
                 (t, rows)
             })
             .collect();
-        Report { summary, by: args.by, sections }
+        let budgets =
+            budgets.iter().filter(|b| b.tool.is_none() || b.tool == args.tool || args.tool.is_none()).collect();
+        Report { summary, by: args.by, sections, budgets }
     }
 
     fn total_cost(&self) -> f64 {
@@ -102,6 +109,7 @@ impl<'a> Report<'a> {
             by: self.by.key(),
             total_cost: self.total_cost(),
             total_tokens: self.total_tokens(),
+            budgets: &self.budgets,
             tools: self
                 .sections
                 .iter()
@@ -133,6 +141,27 @@ impl<'a> Report<'a> {
             format::cost(self.total_cost()),
             format::tokens(self.total_tokens())
         );
+        if !self.budgets.is_empty() {
+            out += "\nBudgets\n";
+            let now = Local::now().timestamp_millis();
+            for b in &self.budgets {
+                let scope = b.tool.map(|t| t.name()).unwrap_or("all tools");
+                let state = match b.level {
+                    Level::Over => "USED UP",
+                    Level::Warn => "nearly used",
+                    Level::Ok => "ok",
+                };
+                let _ = writeln!(
+                    out,
+                    "  {scope:<12} {:<11} {:>9} of {:>9}  {:>4.0}%  {state} · resets in {}",
+                    b.period.label(),
+                    format::cost(b.spent),
+                    format::cost(b.limit),
+                    b.fraction() * 100.0,
+                    format::duration(b.resets_at - now)
+                );
+            }
+        }
         for (t, rows) in &self.sections {
             let ts = self.summary.tool(*t);
             let _ = writeln!(
@@ -194,6 +223,8 @@ struct JsonReport<'a> {
     by: &'static str,
     total_cost: f64,
     total_tokens: u64,
+    #[serde(skip_serializing_if = "<[_]>::is_empty")]
+    budgets: &'a [&'a Budget],
     tools: Vec<JsonTool<'a>>,
 }
 

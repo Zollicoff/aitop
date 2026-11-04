@@ -1,5 +1,6 @@
 //! Dashboard state.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::mpsc::Sender;
 use std::sync::Arc;
@@ -11,6 +12,7 @@ use ratatui::widgets::TableState;
 
 use super::Options;
 use crate::aggregate::{summarize, Range, Row, Sort, Summary, ToolSummary};
+use crate::budget::{self, Budget, Level, Period};
 use crate::collector::{Command, Shared};
 use crate::event::Tool;
 use crate::limits::RateLimits;
@@ -63,6 +65,14 @@ pub struct Snapshot {
     pub last_scan: Option<Duration>,
 }
 
+/// A message shown in the footer for a while.
+pub struct Flash {
+    pub text: String,
+    pub until: Instant,
+    /// `Warn` / `Over` colour budget alerts.
+    pub level: Level,
+}
+
 /// Per-tool UI state.
 #[derive(Default)]
 pub struct PanelState {
@@ -87,7 +97,11 @@ pub struct App {
     pub snap: Snapshot,
     /// Click targets recorded while drawing.
     pub hits: Vec<(Rect, Hit)>,
-    pub flash: Option<(String, Instant)>,
+    pub flash: Option<Flash>,
+    /// Budgets evaluated with the current summary.
+    pub budgets: Vec<Budget>,
+    /// Level of each budget at the last refresh, to alert on changes.
+    budget_levels: HashMap<(Option<Tool>, Period), Level>,
     /// Key of the active theme.
     pub theme: String,
     pub(super) quit: bool,
@@ -127,6 +141,8 @@ impl App {
             snap: Snapshot::default(),
             hits: Vec::new(),
             flash: None,
+            budgets: Vec::new(),
+            budget_levels: HashMap::new(),
             quit: false,
         }
     }
@@ -148,9 +164,11 @@ impl App {
         // Recompute when data, range or sort change, and at least once a
         // minute so "active" and the day boundary stay current.
         let key = (d.version, self.range, self.sort, now.timestamp() / 60);
-        if self.summary_key != Some(key) {
+        let recomputed = self.summary_key != Some(key);
+        if recomputed {
             self.summary = Some(Arc::new(summarize(&d.events, self.range, self.sort, now, self.opts.active_window_ms)));
             self.summary_key = Some(key);
+            self.budgets = budget::evaluate(&d.events, &self.opts.budget, now);
         }
         self.snap = Snapshot {
             status: d.status.clone(),
@@ -162,6 +180,10 @@ impl App {
             events: d.events.len(),
             last_scan: d.last_scan,
         };
+        drop(d);
+        if recomputed {
+            self.check_budget_alerts(self.snap.loaded);
+        }
     }
 
     /// Keep each table's selection inside its (possibly shrunk) row list.
@@ -228,7 +250,36 @@ impl App {
     }
 
     pub(super) fn flash(&mut self, msg: impl Into<String>) {
-        self.flash = Some((msg.into(), Instant::now()));
+        self.flash = Some(Flash { text: msg.into(), until: Instant::now() + Duration::from_secs(3), level: Level::Ok });
+    }
+
+    /// Flash (and optionally beep) when a budget moves to a worse level.
+    /// Nothing fires for the levels found at startup.
+    fn check_budget_alerts(&mut self, loaded: bool) {
+        let first = self.budget_levels.is_empty();
+        let mut worst: Option<&Budget> = None;
+        for b in &self.budgets {
+            let prev = self.budget_levels.insert((b.tool, b.period), b.level);
+            let worse = prev.is_some_and(|p| b.level > p) || (prev.is_none() && !first && b.level > Level::Ok);
+            if worse && worst.is_none_or(|w| b.level > w.level) {
+                worst = Some(b);
+            }
+        }
+        if !loaded {
+            // Levels seen while history is still loading are not news.
+            self.budget_levels.clear();
+            return;
+        }
+        let Some(b) = worst else { return };
+        let what = if b.level == Level::Over { "used up" } else { "nearly used" };
+        let text =
+            format!("⚠ {} {what}: {} of {}", b.name(), crate::format::cost(b.spent), crate::format::cost(b.limit));
+        self.flash = Some(Flash { text, until: Instant::now() + Duration::from_secs(15), level: b.level });
+        if self.opts.budget.bell {
+            use std::io::Write;
+            let mut out = std::io::stdout();
+            let _ = out.write_all(b"\x07").and_then(|_| out.flush());
+        }
     }
 
     /// Switch to the theme `delta` steps away in the list.

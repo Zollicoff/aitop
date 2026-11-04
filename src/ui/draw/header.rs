@@ -7,8 +7,9 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
-use super::widgets::dim;
+use super::widgets::{dim, level_color, meter};
 use crate::aggregate::Range;
+use crate::budget;
 use crate::format;
 use crate::theme;
 use crate::ui::app::{App, Hit};
@@ -43,6 +44,14 @@ pub(super) fn draw_header(f: &mut Frame, area: Rect, app: &mut App) {
             spans.push(Span::styled("● ", Style::new().fg(theme::good())));
             spans.push(Span::styled(format!("{} active", s.active_sessions), Style::new().fg(theme::text())));
         }
+    }
+    // The all-tools budget closest to its limit, when there's room for it.
+    if let Some(b) = budget::tightest(&app.budgets, None).filter(|_| area.width >= 110) {
+        spans.push(Span::styled(" │ ", Style::new().fg(theme::border())));
+        spans.push(dim(format!("{} ", b.period.short())));
+        spans.push(Span::styled(format::cost(b.spent), Style::new().fg(level_color(b.level)).bold()));
+        spans.push(dim(format!("/{} ", format::cost(b.limit))));
+        spans.extend(meter(b.fraction(), 8, true));
     }
     f.render_widget(Paragraph::new(Line::from(spans)), area);
     let clock = Local::now().format("%H:%M:%S ").to_string();

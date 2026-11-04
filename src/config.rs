@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use serde::Deserialize;
 
+use crate::budget::BudgetConfig;
 use crate::event::Tool;
 use crate::paths::{config_file, expand};
 use crate::pricing::Price;
@@ -26,6 +27,7 @@ pub struct Config {
     /// Colour theme: a built-in name or a file in `~/.config/aitop/themes`.
     pub theme: Option<String>,
     pub paths: PathsConfig,
+    pub budget: BudgetConfig,
     /// Per-model price overrides in USD per million tokens.
     pub pricing: BTreeMap<String, Price>,
 }
@@ -47,6 +49,7 @@ impl Default for Config {
             hide_missing: false,
             theme: None,
             paths: PathsConfig::default(),
+            budget: BudgetConfig::default(),
             pricing: BTreeMap::new(),
         }
     }
@@ -99,6 +102,19 @@ hide_missing = false
 # tokyo-night. Custom themes go in ~/.config/aitop/themes/NAME.toml; run
 # `aitop themes` to list them and `aitop themes show dracula` for a template.
 # theme = "aitop"
+
+# Spend budgets in USD, for today / this week / this month. Budgets under
+# [budget] cover all tools; [budget.claude] and [budget.codex] cover one.
+# A budget turns amber at warn_at percent and red when it is used up.
+# [budget]
+# daily = 20.0
+# monthly = 300.0
+# warn_at = 80
+# week_starts = "monday"   # or "sunday"
+# bell = false             # ring the terminal bell when a budget changes level
+#
+# [budget.claude]
+# weekly = 100.0
 
 # Override where logs are read from (defaults shown).
 # [paths]

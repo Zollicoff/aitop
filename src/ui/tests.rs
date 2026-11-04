@@ -11,22 +11,33 @@ use super::app::App;
 use super::{draw, Options};
 use crate::aggregate::testutil::ev;
 use crate::aggregate::Range;
-use crate::collector::Dataset;
+use crate::budget::{BudgetConfig, Level};
+use crate::collector::{Dataset, Shared};
 use crate::event::{Interner, Tool};
 use crate::sources::SourceStatus;
 use crate::theme::{self, ThemeSet};
 
 /// An app over a few events, with `theme` applied.
 pub(super) fn app(theme_key: &str) -> App {
+    app_with(theme_key, BudgetConfig::default()).0
+}
+
+/// Like [`app`], with budgets, also returning the shared data so tests can
+/// add events.
+pub(super) fn app_with(theme_key: &str, budget: BudgetConfig) -> (App, Shared) {
     let themes = ThemeSet::builtins();
     theme::set(themes.get(theme_key).unwrap().palette);
     let now = chrono::Local::now().timestamp_millis();
+    // Keep every event "today", even just after midnight.
+    let today = Range::Today.start(chrono::Local::now()).unwrap();
+    let ago = |ms: i64| (now - ms).max(today);
     let mut i = Interner::default();
-    let events = vec![
-        ev(&mut i, Tool::Claude, now - 3_600_000, "/code/webapp", "s1", 2.5),
-        ev(&mut i, Tool::Claude, now - 60_000, "/code/api", "s2", 1.0),
-        ev(&mut i, Tool::Codex, now - 30_000, "/code/api", "x1", 0.75),
+    let mut events = vec![
+        ev(&mut i, Tool::Claude, ago(3_600_000), "/code/webapp", "s1", 2.5),
+        ev(&mut i, Tool::Claude, ago(60_000), "/code/api", "s2", 1.0),
+        ev(&mut i, Tool::Codex, ago(30_000), "/code/api", "x1", 0.75),
     ];
+    events.sort_by_key(|e| e.ts);
     let dir = std::env::temp_dir();
     let data = Dataset {
         events,
@@ -44,10 +55,12 @@ pub(super) fn app(theme_key: &str) -> App {
         config_path: dir.join("config.toml"),
         themes,
         theme: theme_key.into(),
+        budget,
     };
-    let mut app = App::new(Arc::new(RwLock::new(data)), tx, opts);
+    let shared: Shared = Arc::new(RwLock::new(data));
+    let mut app = App::new(shared.clone(), tx, opts);
     app.refresh();
-    app
+    (app, shared)
 }
 
 pub(super) fn render(app: &mut App, w: u16, h: u16) -> Buffer {
@@ -84,4 +97,30 @@ fn theme_background_covers_every_cell() {
         .take(10)
         .collect();
     assert!(wrong.is_empty(), "cells without the theme background: {wrong:?}");
+}
+
+#[test]
+fn budgets_show_and_alert_on_change() {
+    // $4.25 spent today against a $5 daily budget: nearly used, no alert at startup.
+    let budget: BudgetConfig = toml::from_str("daily = 5.0\n[claude]\ndaily = 3.0").unwrap();
+    let (mut a, data) = app_with("aitop", budget);
+    assert!(a.flash.is_none(), "levels at startup are not alerts");
+    let out = text(&render(&mut a, 130, 40));
+    assert!(out.contains("Budget"), "{out}");
+    assert!(out.contains("over Claude Code daily budget"), "claude is past $3: {out}");
+
+    // More spending pushes the all-tools budget over.
+    {
+        let mut d = data.write().unwrap();
+        let mut e = d.events.last().unwrap().clone();
+        e.ts += 1;
+        e.cost = 2.0;
+        e.id = "new".into();
+        d.events.push(e);
+        d.version += 1;
+    }
+    a.refresh();
+    let f = a.flash.as_ref().expect("alert");
+    assert_eq!(f.level, Level::Over);
+    assert!(f.text.contains("daily budget used up"), "{}", f.text);
 }

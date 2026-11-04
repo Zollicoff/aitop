@@ -19,7 +19,15 @@ pub fn run(ctx: &Context) -> Result<()> {
     let c = ctx.snapshot();
     let elapsed = started.elapsed();
     let d = c.data.read().unwrap();
-    println!("pricing  {}\n", d.pricing_sources.join(" + "));
+    println!("pricing  {}", d.pricing_sources.join(" + "));
+    let budgets = if ctx.cfg.budget.is_empty() {
+        "none configured".to_string()
+    } else {
+        let n = crate::budget::evaluate(&d.events, &ctx.cfg.budget, Local::now()).len();
+        format!("{n} configured")
+    };
+    println!("budgets  {budgets}");
+    println!("theme    {}\n", ctx.theme);
 
     let now = Local::now().timestamp_millis();
     for (i, st) in d.status.iter().enumerate() {

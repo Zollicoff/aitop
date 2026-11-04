@@ -8,6 +8,6 @@ mod summary;
 pub(crate) mod testutil;
 
 pub use block::Block;
-pub use range::{Bucket, Range, Sort};
+pub use range::{local_midnight, Bucket, Range, Sort};
 pub use rows::Row;
 pub use summary::{daily, summarize, Summary, ToolSummary};

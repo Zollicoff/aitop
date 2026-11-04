@@ -11,8 +11,9 @@ use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 use super::chart::draw_chart;
-use super::widgets::{dim, kv, meter, val};
+use super::widgets::{dim, kv, level_color, meter, val};
 use crate::aggregate::{Block, Range, ToolSummary};
+use crate::budget::{Budget, Level, Period};
 use crate::event::Tool;
 use crate::format;
 use crate::limits::{LimitWindow, RateLimits};
@@ -27,7 +28,8 @@ pub(super) fn draw_stats(f: &mut Frame, area: Rect, app: &App, tool: Tool, ts: &
     let now = summary.now;
     let meter_w = (area.width as usize).saturating_sub(27).clamp(6, 24);
 
-    let mut lines = totals(tool, ts, summary.range);
+    let worst = app.budgets.iter().filter(|b| b.tool == Some(tool)).map(|b| b.level).max();
+    let mut lines = totals(tool, ts, summary.range, worst);
     lines.push(kv("Status", status(ts, now)));
     lines.extend(top_model(ts));
     if let Some(b) = &ts.block {
@@ -36,6 +38,7 @@ pub(super) fn draw_stats(f: &mut Frame, area: Rect, app: &App, tool: Tool, ts: &
     if let Some(Some(l)) = app.snap.limits.get(tool.index()) {
         lines.extend(limit_lines(l, now, meter_w));
     }
+    lines.extend(app.budgets.iter().filter(|b| b.tool == Some(tool)).map(|b| budget_line(b, area.width as usize)));
 
     let text_h = (lines.len() as u16).min(area.height);
     let [text_area, chart_area] = Layout::vertical([Constraint::Length(text_h), Constraint::Fill(1)]).areas(area);
@@ -46,9 +49,15 @@ pub(super) fn draw_stats(f: &mut Frame, area: Rect, app: &App, tool: Tool, ts: &
 }
 
 /// Cost, tokens, cache and session counts.
-fn totals(tool: Tool, ts: &ToolSummary, range: Range) -> Vec<Line<'static>> {
+/// Cost, tokens, cache and session counts. The cost turns amber or red when
+/// one of the tool's budgets is nearly or fully used.
+fn totals(tool: Tool, ts: &ToolSummary, range: Range, budget: Option<Level>) -> Vec<Line<'static>> {
     let t = ts.tokens;
-    let mut cost = vec![Span::styled(format::cost(ts.cost), Style::new().fg(theme::accent(tool)).bold())];
+    let cost_color = match budget {
+        Some(l) if l > Level::Ok => level_color(l),
+        _ => theme::accent(tool),
+    };
+    let mut cost = vec![Span::styled(format::cost(ts.cost), Style::new().fg(cost_color).bold())];
     if !ts.unpriced_models.is_empty() {
         cost.push(Span::styled(" + unpriced", Style::new().fg(theme::warn())));
     }
@@ -166,6 +175,29 @@ fn limit_line(w: &LimitWindow, fallback: &str, now: i64, meter_w: usize) -> Line
         None => {}
     }
     kv(&label, v)
+}
+
+/// `Day $    ■■■■■□□□  62% $12.40/$20.00 → $31.00`: the meter gets the
+/// room the text leaves, and the projection (shown when the current pace
+/// would overshoot) is dropped first when space is short.
+fn budget_line(b: &Budget, width: usize) -> Line<'static> {
+    let label = match b.period {
+        Period::Day => "Day $",
+        Period::Week => "Week $",
+        Period::Month => "Month $",
+    };
+    let pct = Span::styled(format!(" {:>3.0}%", b.fraction() * 100.0), Style::new().fg(level_color(b.level)).bold());
+    let amounts = dim(format!(" {}/{}", format::cost(b.spent), format::cost(b.limit)));
+    let projection = (b.level < Level::Over && b.projected > b.limit)
+        .then(|| Span::styled(format!(" → {}", format::cost(b.projected)), Style::new().fg(theme::warn())));
+    // " " + 9-column label, then the meter, then the text.
+    let room = |extra: usize| width.saturating_sub(10 + pct.width() + amounts.width() + extra);
+    let projection = projection.filter(|p| room(p.width()) >= 6);
+    let meter_w = room(projection.as_ref().map_or(0, |p| p.width())).min(20);
+    let mut v = if meter_w >= 4 { meter(b.fraction(), meter_w, true) } else { Vec::new() };
+    v.extend([pct, amounts]);
+    v.extend(projection);
+    kv(label, v)
 }
 
 fn clock(ts: i64) -> String {

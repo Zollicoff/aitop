@@ -3,6 +3,7 @@
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 
+use crate::budget::Level;
 use crate::theme;
 
 /// A dimmed span.
@@ -47,4 +48,13 @@ pub(super) fn share_bar(frac: f64, width: usize, color: Color) -> Vec<Span<'stat
         Span::styled("■".repeat(full), Style::new().fg(color)),
         Span::styled("■".repeat(width - full), Style::new().fg(theme::faint())),
     ]
+}
+
+/// Colour for a budget level.
+pub(super) fn level_color(level: Level) -> Color {
+    match level {
+        Level::Ok => theme::good(),
+        Level::Warn => theme::warn(),
+        Level::Over => theme::bad(),
+    }
 }
