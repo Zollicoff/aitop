@@ -26,6 +26,8 @@ pub struct Options {
     pub range: Range,
     pub active_window_ms: i64,
     pub hide_missing: bool,
+    /// Start with the activity feed open.
+    pub show_feed: bool,
     pub config_path: PathBuf,
     pub themes: ThemeSet,
     pub budget: BudgetConfig,

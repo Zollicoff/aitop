@@ -34,6 +34,7 @@ pub(super) fn draw_help(f: &mut Frame, area: Rect, app: &App) {
         key("/", "search the table · enter keeps it · esc clears it"),
         key("s", "cycle sort: cost · tokens · recent · name"),
         key("z", "zoom the focused tool (shows details of the selected row)"),
+        key("a", "show / hide the live activity feed"),
         key("t  T", "next / previous theme"),
         key("r", "rescan logs now"),
         key("q  ctrl-c", "quit"),

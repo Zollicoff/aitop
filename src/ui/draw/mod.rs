@@ -1,6 +1,7 @@
 //! Rendering. One module per screen region.
 
 mod chart;
+mod feed;
 mod footer;
 mod header;
 mod help;
@@ -15,6 +16,7 @@ use ratatui::text::Line;
 use ratatui::widgets::{Block, BorderType, Paragraph};
 use ratatui::Frame;
 
+use feed::draw_feed;
 use footer::draw_footer;
 use header::draw_header;
 use help::draw_help;
@@ -50,6 +52,15 @@ fn draw_body(f: &mut Frame, area: Rect, app: &mut App) {
         draw_welcome(f, area, app);
         return;
     }
+    // The activity feed takes the bottom of the screen when shown.
+    let area = if app.show_feed {
+        let h = (area.height / 3).clamp(5, 14);
+        let [panels, feed] = Layout::vertical([Constraint::Fill(1), Constraint::Length(h)]).areas(area);
+        draw_feed(f, feed, app);
+        panels
+    } else {
+        area
+    };
     let constraints: Vec<Constraint> = tools
         .iter()
         .map(|&t| if app.detected(t) || app.has_data(t) { Constraint::Fill(1) } else { Constraint::Length(3) })

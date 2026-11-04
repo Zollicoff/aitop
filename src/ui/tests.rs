@@ -52,6 +52,7 @@ pub(crate) fn app_with(theme_key: &str, budget: BudgetConfig) -> (App, Shared) {
         range: Range::Week,
         active_window_ms: 5 * 60_000,
         hide_missing: false,
+        show_feed: false,
         config_path: dir.join("config.toml"),
         themes,
         theme: theme_key.into(),
@@ -123,4 +124,20 @@ fn budgets_show_and_alert_on_change() {
     let f = a.flash.as_ref().expect("alert");
     assert_eq!(f.level, Level::Over);
     assert!(f.text.contains("daily budget used up"), "{}", f.text);
+}
+
+#[test]
+fn activity_feed_lists_newest_first() {
+    let mut a = app("aitop");
+    assert!(!text(&render(&mut a, 120, 40)).contains("Activity"));
+    a.on_key(ratatui::crossterm::event::KeyEvent::new(
+        ratatui::crossterm::event::KeyCode::Char('a'),
+        ratatui::crossterm::event::KeyModifiers::NONE,
+    ));
+    let out = text(&render(&mut a, 120, 40));
+    assert!(out.contains("Activity") && out.contains("last 5 min $"), "{out}");
+    let feed: Vec<&str> = out.lines().filter(|l| l.contains(":") && l.contains("$")).collect();
+    let codex = feed.iter().position(|l| l.contains("Codex") && l.contains("$0.75")).unwrap();
+    let claude = feed.iter().position(|l| l.contains("Claude Code") && l.contains("$2.50")).unwrap();
+    assert!(codex < claude, "newest first: {feed:?}");
 }

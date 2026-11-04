@@ -24,6 +24,8 @@ pub struct Config {
     pub active_minutes: u64,
     /// Hide tools that are not installed instead of showing a placeholder.
     pub hide_missing: bool,
+    /// Start with the activity feed open (toggle with `a`).
+    pub feed: bool,
     /// Colour theme: a built-in name or a file in `~/.config/aitop/themes`.
     pub theme: Option<String>,
     pub paths: PathsConfig,
@@ -47,6 +49,7 @@ impl Default for Config {
             history: true,
             active_minutes: 5,
             hide_missing: false,
+            feed: false,
             theme: None,
             paths: PathsConfig::default(),
             budget: BudgetConfig::default(),
@@ -96,6 +99,9 @@ active_minutes = 5
 
 # Hide tools that are not installed instead of showing a placeholder.
 hide_missing = false
+
+# Start with the live activity feed open (press `a` to toggle it).
+feed = false
 
 # Colour theme: aitop (default), catppuccin, dracula, gruvbox, nord,
 # solarized-light, terminal (uses your terminal's own 16 colours) or

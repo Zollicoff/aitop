@@ -67,6 +67,7 @@ impl App {
             KeyCode::Char(']') => self.range = self.range.cycle(1),
             KeyCode::Char('s') => self.sort = self.sort.next(),
             KeyCode::Char('z') => self.zoom = !self.zoom,
+            KeyCode::Char('a') => self.show_feed = !self.show_feed,
             KeyCode::Char('t') => self.cycle_theme(1),
             KeyCode::Char('T') => self.cycle_theme(-1),
             KeyCode::Char('r') => {

@@ -14,7 +14,7 @@ use super::Options;
 use crate::aggregate::{summarize, Filter, Range, Row, Sort, Summary, ToolSummary};
 use crate::budget::{self, Budget, Level, Period};
 use crate::collector::{Command, Shared};
-use crate::event::Tool;
+use crate::event::{Event, Tool};
 use crate::limits::RateLimits;
 use crate::sources::SourceStatus;
 use crate::theme;
@@ -64,6 +64,9 @@ pub struct Snapshot {
     pub events: usize,
     pub last_scan: Option<Duration>,
 }
+
+/// How many recent responses the activity feed keeps.
+const FEED_LEN: usize = 100;
 
 /// A message shown in the footer for a while.
 pub struct Flash {
@@ -120,6 +123,10 @@ pub struct App {
     budget_levels: HashMap<(Option<Tool>, Period), Level>,
     /// Key of the active theme.
     pub theme: String,
+    /// The activity feed is shown.
+    pub show_feed: bool,
+    /// Newest events first (all tools), for the activity feed.
+    pub feed: Vec<Event>,
     pub(super) quit: bool,
 }
 
@@ -151,6 +158,8 @@ impl App {
             tx,
             range: opts.range,
             theme: opts.theme.clone(),
+            show_feed: opts.show_feed,
+            feed: Vec::new(),
             opts,
             sort: Sort::Cost,
             focus: Tool::ALL[0],
@@ -200,6 +209,7 @@ impl App {
             self.summary = Some(Arc::new(s));
             self.summary_key = Some(key);
             self.budgets = budget::evaluate(&d.events, &self.opts.budget, now);
+            self.feed = d.events.iter().rev().take(FEED_LEN).cloned().collect();
         }
         self.snap = Snapshot {
             status: d.status.clone(),
