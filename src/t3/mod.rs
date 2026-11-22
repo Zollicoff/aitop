@@ -53,6 +53,8 @@ const USAGE_CALL: Duration = Duration::from_secs(180);
 const HISTORY_DAYS: u64 = 90;
 /// Days re-read before the newest total held, which may still have been growing.
 const OVERLAP_DAYS: u64 = 2;
+const TOO_OLD_HERE: &str =
+    "the T3 Code on this machine is too old to share linked machines' usage; update T3 Code here";
 
 /// The `[t3]` table.
 #[derive(Debug, Clone, Deserialize)]
@@ -500,9 +502,12 @@ impl Client {
         let (rpc, _) = pairing.as_mut().expect("set above");
         let answer = match rpc.call("peerLinks.pairClient", json!({ "environmentId": id }), CALL) {
             Ok(v) => v,
-            Err(Error::Failed { message, .. }) => return Err(message),
             // A server from before pairing existed does not know the call.
-            Err(_) => return Err("this machine's T3 Code is too old to connect aitop to linked machines".into()),
+            Err(Error::Failed { message, .. }) if message.contains("Unknown request tag") => {
+                return Err(TOO_OLD_HERE.into());
+            }
+            Err(Error::Failed { message, .. }) => return Err(message),
+            Err(e) => return Err(e.to_string()),
         };
         if answer["type"].as_str() != Some("credential") {
             return Err(match answer["reason"].as_str() {
