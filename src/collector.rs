@@ -573,7 +573,7 @@ fn all_tools(mut status: Vec<SourceStatus>) -> Vec<SourceStatus> {
     status
 }
 
-/// A Codex record as aitop made them before 2.2.2: one per change in a
+/// A Codex record as aitop made them before 2.3: one per change in a
 /// session's running total, which billed a fork's copied history again.
 fn is_legacy_codex(e: &Event) -> bool {
     e.tool == Tool::Codex && e.id.starts_with("x:")
