@@ -8,7 +8,11 @@ use crate::aggregate::Range;
 use crate::commands::{export, report, statusline};
 
 #[derive(Parser)]
-#[command(name = "aitop", version, about = "Usage and cost dashboard for Claude Code and Codex CLI")]
+#[command(
+    name = "aitop",
+    version,
+    about = "Usage and cost dashboard for AI coding agents: Claude Code, Codex, and what T3 Code tracks"
+)]
 pub struct Cli {
     #[command(subcommand)]
     pub cmd: Option<Cmd>,
@@ -47,7 +51,7 @@ pub enum Cmd {
     },
     /// Show where aitop looks for logs and what it found.
     Doctor,
-    /// Read your other machines now: those linked in T3 Code and the [[remote]]s in the config.
+    /// Read your other machines now: those linked in T3 Code and the `[[remote]]`s in the config.
     Sync,
     /// Print this machine's usage records, for another machine's aitop to read.
     Export(export::Args),

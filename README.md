@@ -1,22 +1,22 @@
 # aitop
 
-**A btop-style terminal dashboard for AI coding tool usage.** See what Claude Code and Codex CLI are costing you, per project, model and session, live, without API keys and without sending anything anywhere.
+**A btop-style terminal dashboard for AI coding tool usage.** See what Claude Code and Codex CLI are costing you, per project, model and session, live, without API keys and without sending anything anywhere. With [T3 Code](https://github.com/pingdotgg/t3code) it also covers your other machines and the other agents T3 runs.
 
 Inspired by [btop](https://github.com/aristocratos/btop).
 
 ![aitop](docs/screenshot.png)
 
-<sub>Screenshot generated from `scripts/make-demo-home.py` demo data.</sub>
+<sub>The list layout. Screenshots are of `scripts/make-demo-home.py` demo data.</sub>
 
 ## Features
 
-- **Both tools, one screen.** Claude Code and OpenAI Codex CLI, each in its own panel, with totals in the header.
+- **Every agent, one screen.** Claude Code and OpenAI Codex CLI are read from their own logs, in full detail. Each has its own panel, with totals in the header.
 - **Live.** Logs are re-read incrementally every 2 s, so a running session shows up as it happens (a 500 MB history scans in under a second, rescans take milliseconds).
-- **Costs that match the models you use.** A built-in price table covering Claude 3 → 5.x and GPT-5.x / Codex, including cache reads, 5-minute and 1-hour cache writes, long-context tiers and Claude fast mode. Refresh it any time with `aitop pricing update`.
+- **Costs that match the models you use.** A built-in price table covering Claude 3 → 5.x and GPT-5.x / Codex, including cache reads, 5-minute and 1-hour cache writes, long-context tiers, Claude fast mode and Codex's faster speed tiers. Refresh it any time with `aitop pricing update`; with T3 Code installed it stays current by itself.
 - **Projects, models, sessions.** Usage is grouped by git repository (subdirectories and worktrees are folded into their repo), by model, or by session, sortable by cost, tokens, recency or name. Press Enter to drill into any row, `/` to search.
 - **Limits.** Claude's current 5-hour window with burn rate and projected spend; Codex's 5-hour and weekly rate-limit usage straight from its logs.
 - **Budgets.** Set daily, weekly or monthly spend limits, overall or per tool, and get warned as you approach them.
-- **Live activity feed.** Every response as it lands: tool, project, model, tokens and cost.
+- **Live activity feed.** Every response as it lands: agent, project, model, tokens and cost.
 - **Themes and looks.** Eight themes built in (Dracula, Gruvbox, Nord, Catppuccin, Tokyo Night, Solarized Light, your terminal's own colours, and the default) plus your own in TOML; transparent backgrounds; braille, block or TTY graphs; four box styles.
 - **Two layouts, your choice of agents.** A list of agents beside the selected one in full, or stacked panels; turn each agent on or off in Options.
 - **Options menu, like btop.** Esc opens Options · Help · Quit; every setting can be changed live and is saved to your config file, comments and all.
@@ -52,6 +52,7 @@ aitop --range week         # start on the 7-day view (today | week | month | all
 aitop report               # usage per project, today
 aitop report --range month --by model
 aitop report --by day --tool claude --json
+aitop report --tool grok   # one agent: claude, codex, grok, cursor, opencode, antigravity, pi, muse
 aitop statusline           # one-line summary (see "Status line" below)
 aitop themes               # list colour themes; --theme NAME to use one
 aitop pricing              # every model in your logs and the price applied to it
@@ -70,12 +71,12 @@ aitop config > ~/.config/aitop/config.toml   # start a config file
 | `tab` / `shift-tab` | focus next / previous agent |
 | `v` | switch layout: agent list + detail · stacked panels |
 | `↑` `↓` / `j` `k`, `PgUp` `PgDn`, `g` `G` | move the selection |
-| `←` `→` / `h` `l` (or `p` `m` `S`) | projects · models · sessions |
+| `←` `→` / `h` `l` (or `p` `m` `S`) | next / previous tab: projects · models · sessions |
 | `M` | machines, when there is usage from more than one |
 | `enter` | drill into the selected project, model, session or machine; `esc` / `backspace` back out |
 | `/` | search the table as you type; `enter` keeps it, `esc` clears it |
 | `s` | sort by cost · tokens · recent · name |
-| `z` | zoom the focused tool, with details for the selected row |
+| `z` | zoom the focused agent to the full screen, with details for the selected row |
 | `a` | show / hide the live activity feed |
 | `t` / `T` | next / previous theme (for this session; save it in Options) |
 | `r` | rescan now |
@@ -88,12 +89,12 @@ The mouse works too: click tabs and ranges, scroll tables.
 
 ## Where the data comes from
 
-Everything is read from files the tools already write on your machine:
+Claude Code and Codex are read from the files they already write on your machine. Other agents are known through T3 Code:
 
 | Tool | Location | What's in it |
 | --- | --- | --- |
 | Claude Code | `~/.claude/projects/**/*.jsonl` (also `~/.config/claude/projects`, or `$CLAUDE_CONFIG_DIR`) | per-response token usage, model, cwd, session; sub-agent transcripts included |
-| Codex CLI | `~/.codex/sessions/**/rollout-*.jsonl` and `archived_sessions` (or `$CODEX_HOME`) | each request's token usage and the session's running total, model, speed tier, cwd, rate-limit snapshots |
+| Codex CLI | `~/.codex/sessions/**/rollout-*.jsonl` and `archived_sessions` (or `$CODEX_HOME`), including the `.jsonl.zst` files Codex compresses older sessions into | each request's token usage and the session's running total, model, speed tier, cwd, rate-limit snapshots |
 | Other agents (Grok, Cursor, Pi, …) | [T3 Code](#t3-code), when it is running | daily totals and cost per agent and model |
 
 aitop never sends your data anywhere. `aitop pricing update` downloads the public [LiteLLM price list](https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json). Beyond that it only talks to your own machines, to read their usage: the T3 Code server on this one and the machines linked in it (see [T3 Code](#t3-code)), and any you list under `[[remote]]`, over `ssh` (see [Several machines](#several-machines)).
@@ -121,8 +122,7 @@ Prices come from, later ones winning: the table built into aitop, one downloaded
 [T3 Code](https://github.com/pingdotgg/t3code) runs Claude Code and Codex for you, often with config folders of its own, and can link your machines together. When it is installed and running, aitop uses it with nothing to set up:
 
 - **Its transcript folders.** aitop asks T3 which folders it keeps Claude Code and Codex transcripts in on this machine and reads those as well, so usage from T3's own config folders is counted without listing them under `[paths]`. (Folders you do set under `[paths]` are used as they are.)
-- **Its linked machines.** Every machine linked in T3 (Settings → Environments → Linked environments) shows up under **Machines**, with its usage per tool, model and day.
-
+- **Its linked machines.** Every machine linked in T3 (Settings → Environments → Linked environments) shows up under **Machines**, with its usage per agent, model and day.
 - **Its other agents.** aitop reads Claude Code's and Codex's logs itself. Every other agent T3 tracks (Grok Build, Cursor, OpenCode, Antigravity, Pi, Muse Code) gets a panel of its own, under its own name, once there is any usage of it on this machine or a linked one. Its tabs are Models and Machines, and its numbers are T3's daily totals and costs. An agent T3 adds later that this aitop does not know by name appears under "Other agents".
 
 What a linked machine shows is what T3 shares: totals, not individual responses. So it has cost, tokens, models and the daily chart, but no projects or sessions (it appears as one row, "*name* · via T3 Code"), and it is left out of the activity feed, the "active" count and the 5-hour window. Its cost is the one T3 reports, worked out on that machine response by response. For full detail from another machine, read it over ssh instead (next section); a machine read both ways is only counted once.
@@ -133,7 +133,7 @@ How aitop gets access, so you know what it does:
 - For a linked machine it asks the local T3 server to pair it. That needs a session allowed to manage access, which aitop creates for five minutes and revokes as soon as the pairing is done. The session it ends up with on the linked machine can only read usage.
 - Every session is listed in T3 under **Settings → Sharing & access** as `aitop`, where you can revoke it. `[t3] enabled = false` in the config makes aitop leave T3 alone entirely.
 
-**If aitop and T3's Usage page disagree.** They read the same logs by the same rules, with one difference: aitop also reads Codex's `archived_sessions` folder, and T3 does not, so sessions you have archived count here and not there.
+**If aitop and T3's Usage page disagree.** They read the same logs by the same rules, with one difference: aitop also reads Codex's `archived_sessions` folder. T3 does not, so of the sessions you have archived it only counts what it had already read before they were moved. aitop counts them all, and so can show more Codex usage than T3 does.
 
 **Prices.** T3 keeps a current price list on each machine (LiteLLM's, which it refreshes by itself). aitop uses that list for this machine's usage, so new models are priced without running `aitop pricing update` and costs line up with T3's own Usage page; `[pricing]` in the config still wins. For linked machines aitop keeps the cost T3 reports. `[t3] prices = false` goes back to aitop's own prices for both.
 
@@ -166,9 +166,9 @@ Costs for remote usage are computed here, with this machine's price table.
 
 ## Configuration
 
-![Options](docs/options.png)
+![Options, on the Agents section](docs/options.png)
 
-Most settings can be changed from the dashboard: press `Esc` (or `o`) for **Options**. Use `←` `→` to change a value (Enter to type a number), and `Tab` to move between the General, Display and Budgets sections. Changes apply immediately and are saved to your config file without disturbing its comments or layout.
+Most settings can be changed from the dashboard: press `Esc` (or `o`) for **Options**. Use `←` `→` to change a value (Enter to type a number), and `Tab` to move between the General, Display, Agents and Budgets sections. Changes apply immediately and are saved to your config file without disturbing its comments or layout.
 
 The file is `~/.config/aitop/config.toml` (all optional; `aitop config` prints a commented example):
 
@@ -186,11 +186,19 @@ box_style = "rounded"       # rounded | plain | double | thick
 graph_symbol = "block"      # braille | block | tty
 graph_color = "accent"      # accent (tool colour) | gradient (by height)
 chart = "cost"              # cost | tokens
+layout = "auto"             # auto | list | stacked (see "Layout and agents" below)
 clock_format = "%H:%M:%S"   # strftime; "" hides the clock
 
 [budget]                    # USD; see "Budgets" below
 daily = 20.0
 monthly = 300.0
+
+[agents]                    # false hides an agent from the dashboard
+pi = false
+
+[t3]                        # T3 Code (see "T3 Code" above)
+enabled = true
+prices = true
 
 [paths]                     # override log locations
 claude = ["~/.claude/projects"]
@@ -204,6 +212,8 @@ cache_read = 0.1
 `NO_COLOR` disables colour. With `truecolor = "auto"`, 24-bit colour is used when the terminal advertises it (`COLORTERM`), otherwise the nearest of 256 colours.
 
 ### Layout and agents
+
+![The stacked layout](docs/stacked.png)
 
 - **Two layouts.** `list` puts every agent in a list on the left, with its cost, and shows the selected one in full beside it; `tab` picks the agent. `stacked` gives each agent a full-width panel, top to bottom. The default, `auto`, is stacked for one or two agents and the list for more. `v` switches while aitop runs; Options → Display → Layout (or `layout = "list"`) keeps your choice.
 - **Choose which agents are shown.** Options → Agents has an on/off switch for each one, saved as `[agents]` in the config (`pi = false`). An agent that is off is left out of the panels, the header totals and the activity feed; `aitop report` still includes it.
@@ -234,7 +244,7 @@ claude = "#ff9e64"
 gradient = ["#50fa7b", "#f1fa8c", "#ff5555"]   # meters: low, middle, high
 ```
 
-Keys: `background text bright dim faint border selection good warn bad claude codex gradient`.
+Keys: `background text bright dim faint border selection good warn bad claude codex gradient`. The other agents' panels take their colours from these (Grok Build `bright`, Pi `good`, Muse Code `warn`, and Cursor, OpenCode and Antigravity the three `gradient` colours), so every theme covers them.
 
 ### Budgets
 
@@ -247,7 +257,7 @@ warn_at = 80            # percent at which a budget turns amber
 week_starts = "monday"  # or "sunday"
 bell = false            # ring the terminal bell on a budget alert
 
-[budget.claude]         # per-tool budgets
+[budget.claude]         # for one tool: [budget.claude] or [budget.codex]
 monthly = 200.0
 ```
 
@@ -289,8 +299,10 @@ RPROMPT='$(aitop statusline --format "{today} today")'
 cargo test
 cargo clippy --all-targets -- -D warnings
 python3 scripts/make-demo-home.py /tmp/aitop-demo
-HOME=/tmp/aitop-demo cargo run -- --no-history
+HOME=/tmp/aitop-demo T3CODE_HOME=/tmp/aitop-demo/.t3 cargo run
 ```
+
+The demo home has logs for Claude Code and Codex, and a history file with what T3 Code would have reported (two other agents and a linked machine), so every panel and layout can be tried without real data. `T3CODE_HOME` keeps a real T3 Code on your machine out of it.
 
 ### Layout
 
@@ -299,21 +311,27 @@ src/
   main.rs          entry point: parse args, dispatch to a command
   cli.rs           command-line definition
   commands/        one module per subcommand (dashboard, report, statusline, pricing, themes, doctor, sync, export)
-  sources/         log readers, one module per tool, behind the `Source` trait
-  collector.rs     runs the sources, de-duplicates, prices and stores events
-  remote.rs        usage from other machines: runs `aitop export` there and parses it
-  t3/              T3 Code: finding it, getting a session, its WebSocket RPC, reading its usage summaries
+  sources/         log readers behind the `Source` trait: claude.rs, and codex/ (its counters,
+                   the billing rules, compressed logs)
+  collector/       runs the sources, de-duplicates, prices and stores events (mod.rs); usage from
+                   other machines and T3 Code, and what is counted once (machines.rs); what is
+                   published to the dashboard (dataset.rs)
+  remote.rs        usage from other machines over ssh: runs `aitop export` there and parses it
+  t3/              T3 Code: finding it and getting access (install.rs), what is remembered between
+                   runs (state.rs), its WebSocket RPC (rpc.rs), reading it (client.rs), its usage
+                   summaries (usage.rs), and turning daily totals into records (records.rs)
   aggregate/       ranges, per-project/model/session/machine rows, drill-down filters, 5-hour windows
   budget.rs        spend budgets and their periods
   pricing/         price table, cost maths, LiteLLM import
   theme/           palette, theme files, built-in themes (builtin/*.toml), look settings
-  ui/              dashboard state, input, drill-down/search, menus/options, and draw/ (one module per region)
+  ui/              dashboard state, input, drill-down/search, menu/ (the menus, and the table of
+                   settings in items.rs), and draw/ (one module per region)
   appearance.rs    look-and-feel choices (graph symbols, box styles, …)
   settings.rs      saving single settings back to config.toml
   event.rs  limits.rs  project.rs  store.rs  config.rs  paths.rs  format.rs  host.rs
 ```
 
-To add a tool: write a `Source` in `src/sources/`, add a variant to `Tool` in `event.rs`, and register it in `sources::all`; the compiler then points at the couple of `match`es that need an entry (display name, colour). The collector, summaries, reports and dashboard need no changes.
+To add a tool aitop reads itself: write a `Source` in `src/sources/`, add a variant to `Tool` in `event.rs`, and register it in `sources::all`; the compiler then points at the couple of `match`es that need an entry (display name, colour). To name an agent that T3 Code reports: add the variant to `Tool` with T3's name for it as its `key`, and a line for its switch in `ui/menu/items.rs`. The collector, summaries, reports and dashboard need no changes for either.
 
 ## Credits
 

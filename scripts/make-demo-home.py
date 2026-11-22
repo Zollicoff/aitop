@@ -3,7 +3,12 @@
 logs, for trying aitop or taking screenshots:
 
     python3 scripts/make-demo-home.py /tmp/aitop-demo
-    HOME=/tmp/aitop-demo aitop --no-history
+    HOME=/tmp/aitop-demo T3CODE_HOME=/tmp/aitop-demo/.t3 aitop
+
+Besides the logs, it writes a config that names the machine "desktop" and a
+history file holding what T3 Code would have reported: two other agents
+(Grok Build and Pi) and a linked machine ("studio"). `T3CODE_HOME` points
+aitop away from any real T3 Code on the machine running the demo.
 """
 
 import json
@@ -114,12 +119,68 @@ for name, weight, model in [("api-server", 1.0, "gpt-5.3-codex"), ("data-pipelin
             cached = int(inp * random.uniform(0.5, 0.9))
             out = random.randint(200, 5000)
             reas = int(out * random.uniform(0.2, 0.6))
-            tot = {k: tot[k] + v for k, v in {"input_tokens": inp, "cached_input_tokens": cached, "output_tokens": out, "reasoning_output_tokens": reas, "total_tokens": inp + out}.items()}
-            lines.append({"timestamp": iso(t), "type": "event_msg", "payload": {"type": "token_count", "info": {"total_token_usage": dict(tot), "model_context_window": 272000},
+            last = {"input_tokens": inp, "cached_input_tokens": cached, "output_tokens": out, "reasoning_output_tokens": reas, "total_tokens": inp + out}
+            tot = {k: tot[k] + v for k, v in last.items()}
+            lines.append({"timestamp": iso(t), "type": "event_msg", "payload": {"type": "token_count", "info": {"total_token_usage": dict(tot), "last_token_usage": last, "model_context_window": 272000},
                           "rate_limits": {"primary": {"used_percent": round(random.uniform(10, 70), 1), "window_minutes": 300, "resets_at": int((now + timedelta(hours=2, minutes=17)).timestamp())},
                                           "secondary": {"used_percent": 23.0, "window_minutes": 10080, "resets_at": int((now + timedelta(days=3, hours=5)).timestamp())}}}})
         with open(os.path.join(day, f"rollout-{start.strftime('%Y-%m-%dT%H-%M-%S')}-{sid}.jsonl"), "w") as f:
             f.writelines(json.dumps(l) + "\n" for l in lines)
 
+
+# ── What T3 Code would report ──────────────────────────────────────────────
+# Daily totals, as aitop keeps them in its history: other agents on this
+# machine and a linked one, and the linked machine's Claude Code and Codex.
+cfg_dir = os.path.join(home, ".config", "aitop")
+os.makedirs(cfg_dir, exist_ok=True)
+with open(os.path.join(cfg_dir, "config.toml"), "w") as f:
+    f.write('# aitop demo configuration\nhost = "desktop"\n')
+
+PRICES = {  # USD per million tokens: input, output, cache read
+    "grok-4.7-build": (3.0, 15.0, 0.3),
+    "claude-opus-5-5": (4.0, 20.0, 0.2),
+    "gpt-5.3-codex": (1.75, 14.0, 0.175),
+}
+history = []
+
+
+def total(tool, agent, model, machine, day_ago, responses, sessions, priced=True):
+    """One day's total for `agent` on `machine` (None: this one)."""
+    day = (now - timedelta(days=day_ago)).astimezone()
+    start = day.replace(hour=0, minute=0, second=0, microsecond=0)
+    inp = responses * random.randint(900, 2500)
+    cached = responses * random.randint(20_000, 60_000)
+    out = responses * random.randint(300, 1200)
+    read_on = machine or "desktop"
+    rec = {"t": tool, "ts": int(start.timestamp() * 1000), "s": f"t3:{read_on}", "m": model,
+           "i": inp, "o": out, "cr": cached, "n": responses, "ns": sessions}
+    if tool in ("claude", "codex"):
+        rec.update(id=f"t3:demo:{read_on}:{tool}:{model}:{start:%Y-%m-%d}", p=f"{machine} · via T3 Code", pp=f"t3://{machine}")
+    else:
+        rec.update(id=f"t3:other:{read_on}:{agent}:{model}:{start:%Y-%m-%d}", p={"grok": "Grok Build", "pi": "Pi"}[agent], pp=f"t3-agent://{agent}")
+    if priced:
+        pi, po, pc = PRICES[model]
+        rec["c"] = round((inp * pi + out * po + cached * pc) / 1e6, 4)
+    if machine:
+        rec["h"] = machine
+    history.append(rec)
+
+
+for d in range(13, -1, -1):
+    if random.random() < 0.6:
+        total("grok", "grok", "grok-4.7-build", None, d, random.randint(4, 30), random.randint(1, 3))
+    if random.random() < 0.35:
+        total("grok", "grok", "grok-4.7-build", "studio", d, random.randint(3, 20), random.randint(1, 2))
+    if random.random() < 0.4:
+        total("pi", "pi", "lmstudio/gemma-4-26b", None, d, random.randint(2, 12), 1, priced=False)
+    if random.random() < 0.7:
+        total("claude", "claude", "claude-opus-5-5", "studio", d, random.randint(20, 160), random.randint(1, 5))
+    if random.random() < 0.5:
+        total("codex", "codex", "gpt-5.3-codex", "studio", d, random.randint(10, 90), random.randint(1, 4))
+
+data_dir = os.path.join(home, ".local", "share", "aitop")
+os.makedirs(data_dir, exist_ok=True)
+with open(os.path.join(data_dir, "history.jsonl"), "w") as f:
+    f.writelines(json.dumps(r) + "\n" for r in sorted(history, key=lambda r: r["ts"]))
 
 print(home)

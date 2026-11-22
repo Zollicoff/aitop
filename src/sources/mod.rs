@@ -4,6 +4,9 @@
 //! read from where the previous scan stopped, so polling every couple of
 //! seconds stays cheap even with gigabytes of history. Adding a tool means
 //! adding a module here, a variant to [`Tool`], and an entry in [`all`].
+//!
+//! Not every [`Tool`] has a reader: the agents aitop only knows through
+//! T3 Code have none, and their usage arrives as totals (see [`crate::t3`]).
 
 pub mod claude;
 pub mod codex;

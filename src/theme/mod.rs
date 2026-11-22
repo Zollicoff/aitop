@@ -1,6 +1,6 @@
 //! Colours.
 //!
-//! The active [`Palette`] comes from a theme (see [`file`] and [`ThemeSet`])
+//! The active [`Palette`] comes from a theme (see [`mod@file`] and [`ThemeSet`])
 //! and is read through the small accessor functions below, so drawing code
 //! never names a colour directly. Colours are converted for the terminal on
 //! the way out: truecolor when the terminal advertises it, otherwise the

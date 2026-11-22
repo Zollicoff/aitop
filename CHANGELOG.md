@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Internal clean-up, with no change in behaviour: the collector, the
+  Codex reader, the T3 Code client and the Options menu are each split
+  into smaller modules; unused fields and serialization code are removed;
+  the README's code map and settings reference are brought up to date.
+- `scripts/make-demo-home.py` writes Codex logs in the form Codex itself
+  does, so the demo data shows Codex usage again. It also writes what
+  T3 Code would report (other agents and a linked machine), and the
+  README's screenshots are new.
+
+### Fixed
+
+- Codex sessions that Codex has compressed (`rollout-*.jsonl.zst`) were
+  not read at all, so older Codex usage was missing. They are read now.
+  Each is decompressed once and its records kept in
+  `~/.cache/aitop/codex-zst`, so later starts stay fast.
+
 ## [2.4.0] - 2026-11-22
 
 ### Added

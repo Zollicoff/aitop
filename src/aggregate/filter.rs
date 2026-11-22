@@ -2,12 +2,9 @@
 
 use std::sync::Arc;
 
-use serde::Serialize;
-
 use crate::event::Event;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "lowercase")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FilterKind {
     Project,
     Model,

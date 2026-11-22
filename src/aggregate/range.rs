@@ -66,8 +66,7 @@ impl Range {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, clap::ValueEnum)]
-#[serde(rename_all = "lowercase")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
 pub enum Sort {
     Cost,
     Tokens,
@@ -109,8 +108,7 @@ pub fn local_midnight(d: NaiveDate) -> i64 {
 }
 
 /// Granularity of a cost series.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "lowercase")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Bucket {
     Hour,
     Day,

@@ -3,7 +3,6 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 use chrono::{DateTime, Local, NaiveDate, TimeZone};
-use serde::Serialize;
 
 use super::block::{current_block, Block};
 use super::filter::{matches_all, Filter};
@@ -11,7 +10,7 @@ use super::range::{buckets, Bucket, Range, Sort};
 use super::rows::{disambiguate, Acc, Groups, Row};
 use crate::event::{Event, Tokens, Tool};
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug)]
 pub struct ToolSummary {
     pub tool: Tool,
     pub tokens: Tokens,
@@ -37,7 +36,7 @@ pub struct ToolSummary {
     pub block: Option<Block>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug)]
 pub struct Summary {
     pub range: Range,
     pub now: i64,
@@ -47,7 +46,6 @@ pub struct Summary {
     /// Indexed by `Tool::index()`.
     pub tools: Vec<ToolSummary>,
     pub total_cost: f64,
-    pub total_tokens: u64,
     pub active_sessions: usize,
     /// Each tool's whole cost, tokens and active sessions over the range,
     /// whatever its panel is narrowed to. Indexed by `Tool::index()`.
@@ -136,7 +134,6 @@ pub fn summarize(
         now: now_ms,
         bucket,
         total_cost: input.in_range.iter().map(|e| e.cost).sum::<f64>() + 0.0,
-        total_tokens: input.in_range.iter().map(|e| e.tokens.total()).sum(),
         active_sessions: whole.iter().map(|w| w.2).sum(),
         whole,
         buckets: bucket_starts,
