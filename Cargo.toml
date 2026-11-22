@@ -15,11 +15,14 @@ anyhow = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 clap = { version = "4", features = ["derive"] }
 dirs = "6"
+gethostname = "1"
+iana-time-zone = "0.1.65"
 ratatui = "0.30"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
 toml = "0.9"
 toml_edit = "0.25"
+tungstenite = { version = "0.30.0", features = ["rustls-tls-webpki-roots"] }
 ureq = "3"
 
 [dev-dependencies]

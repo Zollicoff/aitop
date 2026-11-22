@@ -1,4 +1,5 @@
-//! Right half of a panel: view tabs and the projects / models / sessions table.
+//! Right half of a panel: view tabs and the projects / models / sessions /
+//! machines table.
 
 use std::path::Path;
 
@@ -47,7 +48,8 @@ pub(super) fn draw_table(f: &mut Frame, area: Rect, app: &mut App, tool: Tool, s
     let [rows_area, bar_area] =
         Layout::horizontal([Constraint::Fill(1), Constraint::Length(if scrolls { 1 } else { 0 })]).areas(table_area);
     let columns = Column::fitting(rows_area.width);
-    let ctx = CellCtx { ts, view, tool, now: summary.now };
+    let host = app.snap.host.clone();
+    let ctx = CellCtx { ts, view, tool, now: summary.now, host: &host };
     let header = TRow::new(columns.iter().map(|c| c.header(view))).style(Style::new().fg(theme::dim()).bold());
     let body = rows.iter().map(|r| TRow::new(columns.iter().map(|c| c.cell(r, &ctx))));
     let highlight =
@@ -73,7 +75,7 @@ fn draw_tabs(f: &mut Frame, area: Rect, app: &mut App, tool: Tool) {
     let current = app.panels[tool.index()].view;
     let mut spans = Vec::new();
     let mut x = area.x;
-    for v in View::ALL {
+    for &v in app.views() {
         let label = format!(" {} ", v.label());
         let w = label.chars().count() as u16;
         app.hits.push((Rect::new(x, area.y, w, 1), Hit::Tab(tool, v)));
@@ -86,17 +88,21 @@ fn draw_tabs(f: &mut Frame, area: Rect, app: &mut App, tool: Tool) {
         spans.extend([Span::styled(label, style), Span::raw(" ")]);
     }
     f.render_widget(Paragraph::new(Line::from(spans)), area);
-    // Right side: the search box when searching, otherwise the sort order.
+    // Right side: the search box when searching, otherwise the sort order
+    // (when the tabs leave room for it).
     let query = &app.panels[tool.index()].query;
     let typing = app.searching && app.focus == tool;
+    let sort = format!("by {} ↓ ", app.sort.label());
     let right = if typing || !query.is_empty() {
         let cursor = if typing { "▏" } else { "" };
         Line::from(vec![
             Span::styled("/", Style::new().fg(theme::accent(tool)).bold()),
             Span::styled(format!("{query}{cursor} "), Style::new().fg(theme::bright())),
         ])
+    } else if x + sort.chars().count() as u16 <= area.right() {
+        Line::from(dim(sort))
     } else {
-        Line::from(dim(format!("by {} ↓ ", app.sort.label())))
+        Line::default()
     };
     f.render_widget(Paragraph::new(right).alignment(Alignment::Right), area);
 }
@@ -119,6 +125,12 @@ fn draw_detail(f: &mut Frame, area: Rect, r: &Row, view: View, now: i64) {
         View::Sessions => {
             vec![dim(" session "), val(r.key.clone()), dim("  model "), val(format::short_model(&r.detail))]
         }
+        View::Machines => vec![
+            dim(" machine "),
+            val(r.name.clone()),
+            dim(format!("  {} sessions  top model ", format::thousands(r.sessions as u64))),
+            val(format::short_model(&r.detail)),
+        ],
     };
     let t = r.tokens;
     let mut second = vec![
@@ -145,6 +157,8 @@ struct CellCtx<'a> {
     view: View,
     tool: Tool,
     now: i64,
+    /// This machine's name.
+    host: &'a str,
 }
 
 #[derive(Clone, Copy)]
@@ -192,8 +206,9 @@ impl Column {
                 View::Projects => "Project",
                 View::Models => "Model",
                 View::Sessions => "Session",
+                View::Machines => "Machine",
             }),
-            Column::Count => right(if view == View::Projects { "Sess" } else { "Resp" }),
+            Column::Count => right(if counts_sessions(view) { "Sess" } else { "Resp" }),
             Column::Tokens => right("Tokens"),
             Column::Cost => right("Cost"),
             Column::Share => Cell::from("Share"),
@@ -211,9 +226,11 @@ impl Column {
                     val(r.name.clone()),
                     dim(format!(" {}", r.key.chars().take(8).collect::<String>())),
                 ]),
+                View::Machines if r.key == ctx.host => Line::from(vec![val(r.name.clone()), dim(" · this one")]),
+                View::Machines => Line::from(val(r.name.clone())),
             }),
             Column::Count => {
-                let n = if ctx.view == View::Projects { r.sessions as u64 } else { r.messages };
+                let n = if counts_sessions(ctx.view) { r.sessions as u64 } else { r.messages };
                 right(Line::from(format::thousands(n))).style(theme::dim_style())
             }
             Column::Tokens => right(Line::from(format::tokens(r.tokens.total()))),
@@ -231,6 +248,11 @@ impl Column {
             Column::Last => right(Line::from(format::ago(ctx.now - r.last_ts))).style(theme::dim_style()),
         }
     }
+}
+
+/// Whether the count column of `view` is sessions (rather than responses).
+fn counts_sessions(view: View) -> bool {
+    matches!(view, View::Projects | View::Machines)
 }
 
 /// Cost, with `?` when nothing in the row is priced and `*` when part is.

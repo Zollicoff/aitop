@@ -14,12 +14,15 @@ use crate::format;
 
 #[derive(clap::Args)]
 pub struct Args {
-    /// Group rows by project, model, session or day.
+    /// Group rows by project, model, session, day or machine.
     #[arg(long, value_enum, default_value = "project")]
     pub by: By,
     /// Only one tool.
     #[arg(long, value_enum)]
     pub tool: Option<Tool>,
+    /// Only usage from this machine (a name from `--by machine`).
+    #[arg(long, value_name = "NAME")]
+    pub machine: Option<String>,
     #[arg(long, value_enum, default_value = "cost")]
     pub sort: Sort,
     /// Maximum rows per tool.
@@ -36,6 +39,7 @@ pub enum By {
     Model,
     Session,
     Day,
+    Machine,
 }
 
 impl By {
@@ -45,6 +49,7 @@ impl By {
             By::Model => "model",
             By::Session => "session",
             By::Day => "day",
+            By::Machine => "machine",
         }
     }
 }
@@ -53,9 +58,20 @@ pub fn run(ctx: &Context, args: &Args) -> Result<()> {
     let c = ctx.snapshot();
     let d = c.data.read().unwrap();
     let now = Local::now();
-    let summary = summarize(&d.events, ctx.range, args.sort, now, ctx.active_window_ms, &[]);
+    // One machine's events when asked for; budgets cover them all regardless.
+    let narrowed: Option<Vec<Event>> =
+        args.machine.as_ref().map(|m| d.events.iter().filter(|e| *e.host == **m).cloned().collect());
+    let events = narrowed.as_deref().unwrap_or(&d.events);
+    if let (Some(m), true) = (&args.machine, events.is_empty()) {
+        let known: std::collections::BTreeSet<&str> = d.events.iter().map(|e| &*e.host).collect();
+        anyhow::bail!(
+            "no usage from a machine called `{m}`; there is: {}",
+            known.into_iter().collect::<Vec<_>>().join(", ")
+        );
+    }
+    let summary = summarize(events, ctx.range, args.sort, now, ctx.active_window_ms, &[]);
     let budgets = budget::evaluate(&d.events, &ctx.cfg.budget, now);
-    let report = Report::new(&summary, &d.events, &budgets, args);
+    let report = Report::new(&summary, events, &budgets, args);
     if args.json {
         println!("{}", serde_json::to_string_pretty(&report.json())?);
     } else {
@@ -85,6 +101,7 @@ impl<'a> Report<'a> {
                     By::Model => ts.models.clone(),
                     By::Session => ts.session_rows.clone(),
                     By::Day => daily(events, Some(t), summary.range, Local::now()),
+                    By::Machine => ts.machines.clone(),
                 };
                 (t, rows)
             })

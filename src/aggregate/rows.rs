@@ -34,6 +34,8 @@ pub(super) struct Acc {
     cost: f64,
     messages: u64,
     sessions: HashSet<Arc<str>>,
+    /// Sessions counted by totals, whose ids are not known.
+    unnamed_sessions: usize,
     /// Cost per model (plus a tiny token-based tiebreak for unpriced models).
     models: HashMap<Arc<str>, f64>,
     unpriced: bool,
@@ -52,8 +54,13 @@ impl Acc {
         }
         self.tokens += e.tokens;
         self.cost += e.cost;
-        self.messages += 1;
-        self.sessions.insert(e.session.clone());
+        self.messages += e.responses();
+        match e.rollup {
+            Some(r) => self.unnamed_sessions += r.sessions as usize,
+            None => {
+                self.sessions.insert(e.session.clone());
+            }
+        }
         *self.models.entry(e.model.clone()).or_default() += e.cost + 1e-12 * e.tokens.total() as f64;
         self.unpriced |= !e.priced;
         self.first_ts = self.first_ts.min(e.ts);
@@ -73,7 +80,7 @@ impl Acc {
     }
 
     pub(super) fn session_count(&self) -> usize {
-        self.sessions.len()
+        self.sessions.len() + self.unnamed_sessions
     }
 
     pub(super) fn detail(&self) -> String {
@@ -89,7 +96,7 @@ impl Acc {
             key: key.to_string(),
             name: self.name.to_string(),
             detail,
-            sessions: self.sessions.len(),
+            sessions: self.session_count(),
             messages: self.messages,
             tokens: self.tokens,
             cost: self.cost,

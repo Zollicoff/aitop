@@ -11,6 +11,8 @@ use crate::budget::BudgetConfig;
 use crate::event::Tool;
 use crate::paths::{config_file, expand};
 use crate::pricing::Price;
+use crate::remote::RemoteConfig;
+use crate::t3::T3Config;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -40,6 +42,12 @@ pub struct Config {
     pub chart: ChartMetric,
     /// strftime format for the header clock; empty hides it.
     pub clock_format: String,
+    /// What to call this machine when several are shown together.
+    pub host: Option<String>,
+    /// Other machines whose usage is pulled in (`[[remote]]`).
+    pub remote: Vec<RemoteConfig>,
+    /// Reading from T3 Code, when it is installed.
+    pub t3: T3Config,
     pub paths: PathsConfig,
     pub budget: BudgetConfig,
     /// Per-model price overrides in USD per million tokens.
@@ -70,6 +78,9 @@ impl Default for Config {
             graph_color: GraphColor::Accent,
             chart: ChartMetric::Cost,
             clock_format: "%H:%M:%S".into(),
+            host: None,
+            remote: Vec::new(),
+            t3: T3Config::default(),
             paths: PathsConfig::default(),
             budget: BudgetConfig::default(),
             pricing: BTreeMap::new(),
@@ -84,10 +95,20 @@ impl Config {
             None => (config_file(), false),
         };
         match std::fs::read_to_string(&path) {
-            Ok(text) => toml::from_str(&text).with_context(|| format!("invalid config file {}", path.display())),
+            Ok(text) => {
+                let invalid = || format!("invalid config file {}", path.display());
+                let cfg: Config = toml::from_str(&text).with_context(invalid)?;
+                crate::remote::resolve(&cfg, &cfg.host_name()).with_context(invalid)?;
+                Ok(cfg)
+            }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound && !explicit => Ok(Config::default()),
             Err(e) => Err(e).with_context(|| format!("cannot read {}", path.display())),
         }
+    }
+
+    /// This machine's name: `host`, or else its hostname.
+    pub fn host_name(&self) -> String {
+        crate::host::local(self.host.as_deref())
     }
 
     /// Log directories configured for `tool`, if the user overrode the defaults.
@@ -148,6 +169,10 @@ chart = "cost"
 # Header clock (strftime format); "" hides it.
 clock_format = "%H:%M:%S"
 
+# What this machine is called when usage from several machines is shown
+# together (see [[remote]] below). Default: its hostname.
+# host = "desktop"
+
 # Spend budgets in USD, for today / this week / this month. Budgets under
 # [budget] cover all tools; [budget.claude] and [budget.codex] cover one.
 # A budget turns amber at warn_at percent and red when it is used up.
@@ -160,6 +185,27 @@ clock_format = "%H:%M:%S"
 #
 # [budget.claude]
 # weekly = 100.0
+
+# T3 Code (https://github.com/pingdotgg/t3code). When it is installed and
+# running, aitop asks it which transcript folders it uses on this machine and
+# reads those too, and shows the usage of the machines linked to it (T3's
+# Linked environments), a total per model and day. Nothing to set up: aitop
+# gives itself read-only access with T3's own `t3 auth session issue`, listed
+# in T3 under Sharing & access as "aitop". Set enabled = false to leave T3 alone.
+# [t3]
+# enabled = true
+# every = 300              # seconds between reads
+
+# Usage from your other machines. Each one listed here is asked for its
+# usage over ssh (it needs an aitop that has `aitop export`, and ssh access
+# without a password prompt) and shown alongside this machine's. What it reports is
+# kept in the local history, so it stays visible while that machine is
+# asleep. A response seen from two machines is only counted once.
+# [[remote]]
+# ssh = "macbook"          # a host, ssh alias or user@host
+# name = "macbook"         # what to call it (default: the ssh host)
+# aitop = "/usr/local/bin/aitop"   # if aitop is not on the PATH there
+# every = 60               # seconds between syncs
 
 # Override where logs are read from (defaults shown).
 # [paths]
@@ -189,5 +235,17 @@ mod tests {
     fn pricing_override_parses() {
         let c: Config = toml::from_str("[pricing.\"foo\"]\ninput = 1.0\noutput = 2.0\n").unwrap();
         assert_eq!(c.pricing["foo"].output, 2.0);
+    }
+
+    #[test]
+    fn remotes_are_checked_on_load() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("config.toml");
+        std::fs::write(&p, "host = \"desk\"\n\n[[remote]]\nssh = \"laptop\"\n").unwrap();
+        let c = Config::load(Some(&p)).unwrap();
+        assert_eq!((c.host_name().as_str(), c.remote.len()), ("desk", 1));
+        std::fs::write(&p, "[[remote]]\nssh = \"laptop\"\ncommand = [\"x\"]\n").unwrap();
+        let err = format!("{:#}", Config::load(Some(&p)).unwrap_err());
+        assert!(err.contains("[[remote]] #1") && err.contains("not both"), "{err}");
     }
 }

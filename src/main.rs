@@ -9,13 +9,16 @@ mod commands;
 mod config;
 mod event;
 mod format;
+mod host;
 mod limits;
 mod paths;
 mod pricing;
 mod project;
+mod remote;
 mod settings;
 mod sources;
 mod store;
+mod t3;
 mod theme;
 mod ui;
 
@@ -62,6 +65,8 @@ fn run() -> Result<()> {
         Some(Cmd::Themes { action: None }) => commands::themes::list(&ctx),
         Some(Cmd::Themes { action: Some(ThemesCmd::Show { name }) }) => commands::themes::show(&ctx, &name),
         Some(Cmd::Doctor) => commands::doctor::run(&ctx),
+        Some(Cmd::Sync) => commands::sync::run(&ctx),
+        Some(Cmd::Export(args)) => commands::export::run(&ctx, &args),
         Some(Cmd::Config) => {
             print!("{}", config::EXAMPLE);
             Ok(())

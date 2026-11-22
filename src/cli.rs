@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand};
 
 use crate::aggregate::Range;
-use crate::commands::{report, statusline};
+use crate::commands::{export, report, statusline};
 
 #[derive(Parser)]
 #[command(name = "aitop", version, about = "Usage and cost dashboard for Claude Code and Codex CLI")]
@@ -47,6 +47,10 @@ pub enum Cmd {
     },
     /// Show where aitop looks for logs and what it found.
     Doctor,
+    /// Read your other machines now: those linked in T3 Code and the [[remote]]s in the config.
+    Sync,
+    /// Print this machine's usage records, for another machine's aitop to read.
+    Export(export::Args),
     /// Print an example config file.
     Config,
 }

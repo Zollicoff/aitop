@@ -287,6 +287,8 @@ pub fn run(ctx: &Context, args: &Args) -> Result<()> {
     let wants_budget = fields.contains(&Field::Budget);
     let configured = if wants_budget { budget::evaluate(&[], &ctx.cfg.budget, now) } else { Vec::new() };
     let mut c = Collector::new(&ctx.cfg, None);
+    // Only for the transcript folders T3 Code reported earlier; nothing is asked of it here.
+    c.use_t3(&ctx.cfg, crate::t3::state_path());
     c.read_since(lookback(&fields, &configured, now));
     c.scan();
     let d = c.data.read().unwrap();

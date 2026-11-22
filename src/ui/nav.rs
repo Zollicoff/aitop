@@ -1,7 +1,7 @@
 //! Drill-down and search.
 //!
-//! Enter narrows the focused panel to the selected row (a project, model or
-//! session); the stats, chart and tables then cover only that. Drilling can
+//! Enter narrows the focused panel to the selected row (a project, model,
+//! session or machine); the stats, chart and tables then cover only that. Drilling can
 //! be repeated (a project, then one of its models) and Esc / Backspace go
 //! back one level. `/` filters the visible table by name as you type.
 
@@ -18,6 +18,7 @@ impl View {
             View::Projects => FilterKind::Project,
             View::Models => FilterKind::Model,
             View::Sessions => FilterKind::Session,
+            View::Machines => FilterKind::Host,
         }
     }
 }
@@ -36,17 +37,18 @@ impl App {
             return;
         }
         let label = match kind {
-            FilterKind::Project => row.name.clone(),
+            FilterKind::Project | FilterKind::Host => row.name.clone(),
             FilterKind::Model => format::short_model(&row.name),
             FilterKind::Session => format!("session {}", row.key.chars().take(8).collect::<String>()),
         };
         let filter = Filter { kind, key: row.key.as_str().into(), label };
         // Show what's inside: the first view not already narrowed down.
         let narrowed: Vec<FilterKind> = p.crumbs.iter().map(|(f, _)| f.kind).chain([kind]).collect();
-        let next = [View::Sessions, View::Models, View::Projects]
-            .into_iter()
-            .find(|v| !narrowed.contains(&v.filter_kind()))
-            .unwrap_or(view);
+        let inside = match kind {
+            FilterKind::Host => [View::Projects, View::Sessions, View::Models],
+            _ => [View::Sessions, View::Models, View::Projects],
+        };
+        let next = inside.into_iter().find(|v| !narrowed.contains(&v.filter_kind())).unwrap_or(view);
         let p = &mut self.panels[tool.index()];
         p.crumbs.push((filter, view));
         p.query.clear();

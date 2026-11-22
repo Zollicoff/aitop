@@ -11,6 +11,7 @@ mod files;
 mod tail;
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use crate::config::Config;
 use crate::event::{Event, Interner, Tool};
@@ -24,6 +25,8 @@ pub use tail::{Change, Tail};
 pub struct Ctx<'a> {
     pub interner: &'a mut Interner,
     pub projects: &'a mut ProjectResolver,
+    /// Name of this machine, stamped on every event read here.
+    pub host: &'a Arc<str>,
     /// Skip files not modified since this time (unix ms). Logs are append
     /// only, so such files hold nothing newer. Used by one-shot commands
     /// that only need recent usage.
@@ -44,11 +47,24 @@ pub trait Source: Send {
     fn tool(&self) -> Tool;
     /// Directories this source reads from.
     fn roots(&self) -> &[PathBuf];
+    /// Also read from `roots` (ones already read are ignored).
+    fn add_roots(&mut self, roots: &[PathBuf]);
     /// Read whatever is new since the last call, pushing events into `out`.
     fn scan(&mut self, ctx: &mut Ctx, out: &mut Vec<Event>) -> SourceStatus;
     /// Latest account rate-limit snapshot, for tools that log one.
     fn rate_limits(&self) -> Option<&RateLimits> {
         None
+    }
+}
+
+/// `roots` with those of `more` it does not already have, comparing the
+/// folders they resolve to.
+pub fn merge_roots(roots: &mut Vec<PathBuf>, more: &[PathBuf]) {
+    let real = |p: &PathBuf| p.canonicalize().unwrap_or_else(|_| p.clone());
+    for m in more {
+        if !roots.iter().any(|r| real(r) == real(m)) {
+            roots.push(m.clone());
+        }
     }
 }
 

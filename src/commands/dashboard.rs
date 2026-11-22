@@ -5,7 +5,7 @@ use std::time::Duration;
 use anyhow::{bail, Result};
 
 use super::Context;
-use crate::collector::{self, Collector};
+use crate::collector;
 use crate::ui;
 
 pub fn run(ctx: &Context, refresh: Option<f64>) -> Result<()> {
@@ -13,7 +13,7 @@ pub fn run(ctx: &Context, refresh: Option<f64>) -> Result<()> {
     if !(0.2..=3600.0).contains(&secs) {
         bail!("refresh interval must be between 0.2 and 3600 seconds");
     }
-    let collector = Collector::new(&ctx.cfg, ctx.history.clone());
+    let collector = ctx.collector();
     let (data, tx) = collector::spawn(collector, Duration::from_secs_f64(secs));
     let opts = ui::Options {
         range: ctx.range,

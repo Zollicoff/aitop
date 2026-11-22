@@ -14,6 +14,7 @@ pub fn run(ctx: &Context) -> Result<()> {
     let found = if ctx.config_path.exists() { "found" } else { "not present, using defaults" };
     println!("config   {} ({found})", tilde(&ctx.config_path));
     println!("history  {}", ctx.history.as_deref().map(tilde).unwrap_or_else(|| "disabled".into()));
+    println!("machine  {}", ctx.cfg.host_name());
 
     let started = Instant::now();
     let c = ctx.snapshot();
@@ -44,6 +45,20 @@ pub fn run(ctx: &Context) -> Result<()> {
             for w in [&l.primary, &l.secondary].into_iter().flatten() {
                 println!("    {:>5.1}% of {} min window", w.used_percent, w.window_minutes.unwrap_or(0));
             }
+        }
+    }
+    match crate::t3::Install::detect() {
+        Some(t3) if ctx.cfg.t3.enabled => {
+            println!("\nT3 Code {}  found; aitop reads its transcript folders and linked machines", t3.version)
+        }
+        Some(t3) => println!("\nT3 Code {}  found, but turned off in the config ([t3] enabled = false)", t3.version),
+        None => {}
+    }
+    if !d.remotes.is_empty() {
+        println!("\nOther machines  (`aitop sync` reads them now)");
+        for r in &d.remotes {
+            let newest = r.newest.map(|t| format!(", newest {} ago", format::duration(now - t))).unwrap_or_default();
+            println!("  {}  ({})  {} records{newest}", r.name, r.target, format::thousands(r.records as u64));
         }
     }
     if let Some(e) = &d.history_error {

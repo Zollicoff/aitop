@@ -98,6 +98,10 @@ impl Source for ClaudeSource {
         &self.roots
     }
 
+    fn add_roots(&mut self, roots: &[PathBuf]) {
+        super::merge_roots(&mut self.roots, roots);
+    }
+
     fn scan(&mut self, ctx: &mut Ctx, out: &mut Vec<Event>) -> SourceStatus {
         let mut status = SourceStatus::new(Tool::Claude, &self.roots);
         let paths = ctx.recent(discover(&self.roots, |p| p.extension().is_some_and(|e| e == "jsonl")));
@@ -193,6 +197,7 @@ fn parse_line(line: &[u8], fallback_session: &str, fallback_project: &str, ctx: 
     };
     Some(Event {
         tool: Tool::Claude,
+        host: ctx.host.clone(),
         id: ctx.interner.get(&id),
         ts,
         session: ctx.interner.get(&session),
@@ -203,6 +208,7 @@ fn parse_line(line: &[u8], fallback_session: &str, fallback_project: &str, ctx: 
         fast: u.speed.as_deref() == Some("fast"),
         cost: 0.0,
         priced: false,
+        rollup: None,
     })
 }
 
@@ -239,7 +245,8 @@ mod tests {
         let mut src = ClaudeSource::new(vec![dir.path().to_path_buf()]);
         let mut interner = Interner::default();
         let mut projects = ProjectResolver::new();
-        let mut ctx = Ctx { interner: &mut interner, projects: &mut projects, since: None };
+        let host: std::sync::Arc<str> = "here".into();
+        let mut ctx = Ctx { interner: &mut interner, projects: &mut projects, host: &host, since: None };
         let mut out = Vec::new();
         let st = src.scan(&mut ctx, &mut out);
         assert_eq!(st.files, 2);

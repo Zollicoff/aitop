@@ -92,6 +92,8 @@ impl AddAssign for Tokens {
 #[derive(Clone, Debug)]
 pub struct Event {
     pub tool: Tool,
+    /// The machine the response was made on (see [`crate::host`]).
+    pub host: Arc<str>,
     /// Unique, stable id (prefixed with the tool key) used for de-duplication.
     pub id: Arc<str>,
     /// Unix time in milliseconds.
@@ -109,6 +111,24 @@ pub struct Event {
     pub cost: f64,
     /// False when no price was found for `model`.
     pub priced: bool,
+    /// Set when this is not one response but a total another program
+    /// reported (see [`crate::t3`]): a machine's usage of one model on one day.
+    pub rollup: Option<Rollup>,
+}
+
+/// What a summarised [`Event`] stands for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Rollup {
+    pub responses: u32,
+    /// Sessions that took part; their ids are not known.
+    pub sessions: u32,
+}
+
+impl Event {
+    /// How many responses this event counts for.
+    pub fn responses(&self) -> u64 {
+        self.rollup.map_or(1, |r| u64::from(r.responses))
+    }
 }
 
 /// String interner so that the (very repetitive) session, project and model

@@ -1,5 +1,35 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- T3 Code: when it is installed and running, aitop reads the transcript
+  folders it uses on this machine (so T3's own config folders are counted
+  without `[paths]`) and shows the machines linked in it, with their usage
+  per tool, model and day. Nothing to set up: aitop gives itself read-only
+  access with T3's own CLI, listed in T3 as `aitop`. `[t3] enabled = false`
+  turns it off. Linked machines need T3 Code from 21 November 2026 or
+  later on both sides.
+- Several machines: list your other machines under `[[remote]]` and aitop
+  pulls their usage over ssh (by running `aitop export` there) and shows
+  it alongside this machine's. A Machines tab (`M`) and drill-down per
+  panel, a machine column in the activity feed, `aitop report --by
+  machine` / `--machine NAME`, and `aitop sync` to pull on demand.
+  Remote usage is kept in the local history, so a machine that is asleep
+  still shows what it last sent, and a response visible from two
+  machines is counted once.
+- `host = "…"` names this machine; `aitop doctor` shows it and the
+  remotes.
+
+### Changed
+
+- History records from another machine carry its name (`h`), and daily
+  totals read through T3 Code carry what they stand for (`n`, `ns`). Older
+  history files load unchanged.
+- New dependencies: `tungstenite` (T3 Code's WebSocket API), `gethostname`
+  and `iana-time-zone`.
+
 ## [2.1.0] - 2026-11-04
 
 ### Added

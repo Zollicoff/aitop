@@ -21,6 +21,8 @@ Inspired by [btop](https://github.com/aristocratos/btop).
 - **Options menu, like btop.** Esc opens Options · Help · Quit; every setting can be changed live and is saved to your config file, comments and all.
 - **Status line.** `aitop statusline` puts today's spend, the 5-hour window and budgets in tmux, your prompt or Claude Code's status line.
 - **History that outlives the logs.** Claude Code deletes transcripts after 30 days; aitop keeps a compact copy of every usage record in `~/.local/share/aitop/history.jsonl`, so "all time" really means all time.
+- **Works with T3 Code, no setup.** If [T3 Code](https://github.com/pingdotgg/t3code) is running, aitop finds the transcript folders it uses and shows the machines you have linked in it.
+- **All your machines.** Usage from your other machines, per machine, through T3 Code's linked environments or over ssh. A response that two machines can see is counted once.
 - **Scriptable.** `aitop report` prints the same numbers as a table or JSON.
 
 ## Install
@@ -53,6 +55,8 @@ aitop statusline           # one-line summary (see "Status line" below)
 aitop themes               # list colour themes; --theme NAME to use one
 aitop pricing              # every model in your logs and the price applied to it
 aitop pricing update       # download current prices
+aitop report --by machine  # usage per machine (see "Several machines" below)
+aitop sync                 # read your other machines now (T3 Code links and [[remote]]s)
 aitop doctor               # where aitop looks, what it found
 aitop config > ~/.config/aitop/config.toml   # start a config file
 ```
@@ -65,7 +69,8 @@ aitop config > ~/.config/aitop/config.toml   # start a config file
 | `tab` / `shift-tab` | focus next / previous tool |
 | `↑` `↓` / `j` `k`, `PgUp` `PgDn`, `g` `G` | move the selection |
 | `←` `→` / `h` `l` (or `p` `m` `S`) | projects · models · sessions |
-| `enter` | drill into the selected project, model or session; `esc` / `backspace` back out |
+| `M` | machines, when there is usage from more than one |
+| `enter` | drill into the selected project, model, session or machine; `esc` / `backspace` back out |
 | `/` | search the table as you type; `enter` keeps it, `esc` clears it |
 | `s` | sort by cost · tokens · recent · name |
 | `z` | zoom the focused tool, with details for the selected row |
@@ -88,7 +93,7 @@ Everything is read from files the tools already write on your machine:
 | Claude Code | `~/.claude/projects/**/*.jsonl` (also `~/.config/claude/projects`, or `$CLAUDE_CONFIG_DIR`) | per-response token usage, model, cwd, session; sub-agent transcripts included |
 | Codex CLI | `~/.codex/sessions/**/rollout-*.jsonl` and `archived_sessions` (or `$CODEX_HOME`) | cumulative token counts per session, model, cwd, rate-limit snapshots |
 
-aitop never sends your data anywhere. The only network request it can make is `aitop pricing update`, which downloads the public [LiteLLM price list](https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json).
+aitop never sends your data anywhere. `aitop pricing update` downloads the public [LiteLLM price list](https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json). Beyond that it only talks to your own machines, to read their usage: the T3 Code server on this one and the machines linked in it (see [T3 Code](#t3-code)), and any you list under `[[remote]]`, over `ssh` (see [Several machines](#several-machines)).
 
 ### How costs are computed
 
@@ -105,6 +110,48 @@ cost = input × input_price + output × output_price
 - Claude streams a response as several log lines repeating the same usage; these are de-duplicated on message and request id.
 - Prompts over 200K tokens use long-context prices where the model has them; Claude fast mode applies its premium.
 - Models without a known price are flagged (`?` / `*` in tables, a warning in the footer). Add them under `[pricing]` in the config, or run `aitop pricing update`.
+
+## T3 Code
+
+[T3 Code](https://github.com/pingdotgg/t3code) runs Claude Code and Codex for you, often with config folders of its own, and can link your machines together. When it is installed and running, aitop uses it with nothing to set up:
+
+- **Its transcript folders.** aitop asks T3 which folders it keeps Claude Code and Codex transcripts in on this machine and reads those as well, so usage from T3's own config folders is counted without listing them under `[paths]`. (Folders you do set under `[paths]` are used as they are.)
+- **Its linked machines.** Every machine linked in T3 (Settings → Environments → Linked environments) shows up under **Machines**, with its usage per tool, model and day.
+
+What a linked machine shows is what T3 shares: totals, not individual responses. So it has cost, tokens, models and the daily chart, but no projects or sessions (it appears as one row, "*name* · via T3 Code"), and it is left out of the activity feed, the "active" count and the 5-hour window. Its cost is worked out here from the daily token totals, which is slightly less exact than pricing each response. For full detail from another machine, read it over ssh instead (next section); a machine read both ways is only counted once.
+
+How aitop gets access, so you know what it does:
+
+- On this machine it runs T3's own `t3 auth session issue` to give itself a session that can only read usage and the list of links. The token is kept in `~/.local/share/aitop/t3.json`, readable only by you.
+- For a linked machine it asks the local T3 server to pair it. That needs a session allowed to manage access, which aitop creates for five minutes and revokes as soon as the pairing is done. The session it ends up with on the linked machine can only read usage.
+- Every session is listed in T3 under **Settings → Sharing & access** as `aitop`, where you can revoke it. `[t3] enabled = false` in the config makes aitop leave T3 alone entirely.
+
+Requirements for linked machines: a T3 Code from 21 November 2026 or later on both machines, T3's **Linked environments** turned on, a full-access link, and T3 running on each. A machine that is asleep keeps showing what it last reported; help (`?`) and `aitop sync` say why one could not be read.
+
+## Several machines
+
+Machines linked in T3 Code appear by themselves (above). To read a machine in full detail, or without T3, aitop can also fetch its records over ssh. On the machine where you watch the dashboard, list the others in the config:
+
+```toml
+# What this machine is called (default: its hostname).
+host = "desktop"
+
+[[remote]]
+ssh = "macbook"        # a host, ssh alias or user@host
+# name = "macbook"     # what to call it (default: the ssh host)
+# aitop = "/usr/local/bin/aitop"   # if aitop is not on the PATH there
+# every = 60           # seconds between syncs
+```
+
+Each remote needs aitop installed (a version that has `aitop export`) and has to be reachable with `ssh` without a password prompt. Nothing has to be running on it: every `every` seconds the dashboard runs `aitop export` there, which prints that machine's usage records, and merges them in.
+
+- **Per machine.** A **Machines** tab (`M`) appears in each panel; Enter drills into one machine's projects, models and sessions. The activity feed gains a machine column, and `aitop report` takes `--by machine` and `--machine NAME`.
+- **Counted once.** Records keep their ids across machines, so a response that two machines can both see (a synced transcript folder, for instance) is counted once, under the machine that had it first. A machine read over ssh is no longer also taken from T3 Code.
+- **Kept while a machine is away.** What a remote reports is stored in the local history, so a machine that is asleep still shows what it last sent. Help (`?`) shows when each one last synced and why a sync failed; `aitop sync` pulls from all of them once and prints the result, which is also the way to keep `aitop report` current from cron.
+- **Everything is totalled.** Header totals, the 5-hour window and budgets cover all machines. `aitop statusline` reads only this machine's recent logs.
+- **Not only ssh.** `command = ["docker", "exec", "box", "aitop"]` (with a `name`) runs aitop some other way; `export` and its flags are added to it.
+
+Costs for remote usage are computed here, with this machine's price table.
 
 ## Configuration
 
@@ -235,17 +282,19 @@ HOME=/tmp/aitop-demo cargo run -- --no-history
 src/
   main.rs          entry point: parse args, dispatch to a command
   cli.rs           command-line definition
-  commands/        one module per subcommand (dashboard, report, statusline, pricing, themes, doctor)
+  commands/        one module per subcommand (dashboard, report, statusline, pricing, themes, doctor, sync, export)
   sources/         log readers, one module per tool, behind the `Source` trait
   collector.rs     runs the sources, de-duplicates, prices and stores events
-  aggregate/       ranges, per-project/model/session rows, drill-down filters, 5-hour windows
+  remote.rs        usage from other machines: runs `aitop export` there and parses it
+  t3/              T3 Code: finding it, getting a session, its WebSocket RPC, reading its usage summaries
+  aggregate/       ranges, per-project/model/session/machine rows, drill-down filters, 5-hour windows
   budget.rs        spend budgets and their periods
   pricing/         price table, cost maths, LiteLLM import
   theme/           palette, theme files, built-in themes (builtin/*.toml), look settings
   ui/              dashboard state, input, drill-down/search, menus/options, and draw/ (one module per region)
   appearance.rs    look-and-feel choices (graph symbols, box styles, …)
   settings.rs      saving single settings back to config.toml
-  event.rs  limits.rs  project.rs  store.rs  config.rs  paths.rs  format.rs
+  event.rs  limits.rs  project.rs  store.rs  config.rs  paths.rs  format.rs  host.rs
 ```
 
 To add a tool: write a `Source` in `src/sources/`, add a variant to `Tool` in `event.rs`, and register it in `sources::all`; the compiler then points at the couple of `match`es that need an entry (display name, colour). The collector, summaries, reports and dashboard need no changes.

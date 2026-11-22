@@ -2,9 +2,11 @@
 
 pub mod dashboard;
 pub mod doctor;
+pub mod export;
 pub mod pricing;
 pub mod report;
 pub mod statusline;
+pub mod sync;
 pub mod themes;
 
 use std::path::PathBuf;
@@ -28,9 +30,16 @@ pub struct Context {
 }
 
 impl Context {
+    /// A collector set up as the config says, having read nothing yet.
+    pub fn collector(&self) -> Collector {
+        let mut c = Collector::new(&self.cfg, self.history.clone());
+        c.use_t3(&self.cfg, crate::t3::state_path());
+        c
+    }
+
     /// Load history and scan the logs once (for one-shot commands).
     pub fn snapshot(&self) -> Collector {
-        let mut c = Collector::new(&self.cfg, self.history.clone());
+        let mut c = self.collector();
         c.load_history();
         c.scan();
         c

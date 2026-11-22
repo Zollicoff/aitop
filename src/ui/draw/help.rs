@@ -13,7 +13,7 @@ use crate::ui::app::App;
 
 pub(super) fn draw_help(f: &mut Frame, area: Rect, app: &App) {
     let w = area.width.saturating_sub(4).min(78);
-    let h = area.height.saturating_sub(2).min(30);
+    let h = area.height.saturating_sub(2).min(31 + 2 + app.snap.remotes.len() as u16);
     let popup = Rect::new(area.x + (area.width - w) / 2, area.y + (area.height - h) / 2, w, h);
     f.render_widget(Clear, popup);
     let dim = theme::dim_style();
@@ -30,6 +30,7 @@ pub(super) fn draw_help(f: &mut Frame, area: Rect, app: &App) {
         key("tab ⇧tab", "focus next / previous tool"),
         key("↑ ↓ j k", "select row (PgUp/PgDn, g/G for top/bottom)"),
         key("← → h l", "switch view: projects · models · sessions (p m S)"),
+        key("M", "usage per machine, when other machines are synced"),
         key("enter", "drill into the selected row · esc / backspace to back out"),
         key("/", "search the table · enter keeps it · esc clears it"),
         key("s", "cycle sort: cost · tokens · recent · name"),
@@ -51,6 +52,42 @@ pub(super) fn draw_help(f: &mut Frame, area: Rect, app: &App) {
                     Style::new().fg(if *exists { theme::good() } else { theme::dim() }),
                 ),
                 Span::styled(tilde(p), dim),
+            ]));
+        }
+    }
+    if let Some(t3) = &app.snap.t3 {
+        let (state, color) = match (&t3.error, t3.read) {
+            (Some(e), _) => {
+                (format::truncate(&format!("not read: {e}"), (w as usize).saturating_sub(30)), theme::warn())
+            }
+            (None, true) => ("connected".to_string(), theme::dim()),
+            (None, false) => ("connecting…".to_string(), theme::dim()),
+        };
+        lines.push(Line::from(vec![
+            Span::styled("  T3 Code     ", Style::new().fg(theme::text())),
+            Span::styled(format!("{} · {state}", t3.version), Style::new().fg(color)),
+        ]));
+    }
+    if app.multi_machine() {
+        let now = chrono::Local::now().timestamp_millis();
+        lines.push(Line::from(vec![
+            Span::styled("  machines    ", Style::new().fg(theme::text())),
+            Span::styled(format!("{} (this one)", app.snap.host), dim),
+        ]));
+        for r in &app.snap.remotes {
+            let via = if r.target == crate::collector::VIA_T3 { " (T3)" } else { "" };
+            let held = format!("{}{via} · {} records", r.name, format::thousands(r.records as u64));
+            // What fits after the indent, the mark and the record count.
+            let room = (w as usize).saturating_sub(21 + held.chars().count());
+            let (mark, color, state) = match (&r.error, r.synced) {
+                (Some(e), _) => ("✗ ", theme::warn(), format::truncate(&format!("not synced: {e}"), room)),
+                (None, Some(t)) => ("✓ ", theme::good(), format!("synced {} ago", format::duration(now - t))),
+                (None, None) => ("… ", theme::dim(), "syncing".to_string()),
+            };
+            lines.push(Line::from(vec![
+                Span::raw("              "),
+                Span::styled(mark, Style::new().fg(color)),
+                Span::styled(format!("{held} · {state}"), dim),
             ]));
         }
     }

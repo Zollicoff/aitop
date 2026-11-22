@@ -14,7 +14,7 @@ use super::menu::Menu;
 use super::Options;
 use crate::aggregate::{summarize, Filter, Range, Row, Sort, Summary, ToolSummary};
 use crate::budget::{self, Budget, Level, Period};
-use crate::collector::{Command, Shared};
+use crate::collector::{Command, RemoteStatus, Shared, T3Status};
 use crate::config::Config;
 use crate::event::{Event, Tool};
 use crate::limits::RateLimits;
@@ -26,28 +26,19 @@ pub enum View {
     Projects,
     Models,
     Sessions,
+    /// Usage per machine; offered once there is more than one.
+    Machines,
 }
 
 impl View {
-    pub const ALL: [View; 3] = [View::Projects, View::Models, View::Sessions];
-
-    pub(super) fn next(self) -> View {
-        match self {
-            View::Projects => View::Models,
-            View::Models => View::Sessions,
-            View::Sessions => View::Projects,
-        }
-    }
-
-    pub(super) fn prev(self) -> View {
-        self.next().next()
-    }
+    pub const ALL: [View; 4] = [View::Projects, View::Models, View::Sessions, View::Machines];
 
     pub fn label(self) -> &'static str {
         match self {
             View::Projects => "Projects",
             View::Models => "Models",
             View::Sessions => "Sessions",
+            View::Machines => "Machines",
         }
     }
 }
@@ -64,6 +55,12 @@ pub struct Snapshot {
     pub history_error: Option<String>,
     pub events: usize,
     pub last_scan: Option<Duration>,
+    /// This machine's name.
+    pub host: String,
+    pub remotes: Vec<RemoteStatus>,
+    /// How many machines there are records from.
+    pub machines: usize,
+    pub t3: Option<T3Status>,
 }
 
 /// How many recent responses the activity feed keeps.
@@ -147,6 +144,7 @@ pub fn rows_for<'a>(ts: &'a ToolSummary, view: View, query: &str) -> Vec<&'a Row
         View::Projects => &ts.projects,
         View::Models => &ts.models,
         View::Sessions => &ts.session_rows,
+        View::Machines => &ts.machines,
     };
     let q = query.trim().to_lowercase();
     rows.iter()
@@ -213,7 +211,8 @@ impl App {
             self.summary = Some(Arc::new(s));
             self.summary_key = Some(key);
             self.budgets = budget::evaluate(&d.events, &self.opts.cfg.budget, now);
-            self.feed = d.events.iter().rev().take(FEED_LEN).cloned().collect();
+            // Only real responses: a daily total is not something that just happened.
+            self.feed = d.events.iter().rev().filter(|e| e.rollup.is_none()).take(FEED_LEN).cloned().collect();
         }
         self.snap = Snapshot {
             status: d.status.clone(),
@@ -224,6 +223,10 @@ impl App {
             history_error: d.history_error.clone(),
             events: d.events.len(),
             last_scan: d.last_scan,
+            host: d.host.clone(),
+            remotes: d.remotes.clone(),
+            machines: d.machines,
+            t3: d.t3.clone(),
         };
         drop(d);
         if recomputed {
@@ -264,6 +267,27 @@ impl App {
         } else {
             shown
         }
+    }
+
+    /// Usage comes from more than this machine (or is set up to).
+    pub fn multi_machine(&self) -> bool {
+        self.snap.machines > 1 || !self.snap.remotes.is_empty()
+    }
+
+    /// The table views on offer, in tab order.
+    pub fn views(&self) -> &'static [View] {
+        if self.multi_machine() {
+            &View::ALL
+        } else {
+            &View::ALL[..3]
+        }
+    }
+
+    /// Step the panel's view `delta` tabs along, wrapping around.
+    pub(super) fn cycle_view(&mut self, tool: Tool, delta: isize) {
+        let views = self.views();
+        let at = views.iter().position(|&v| v == self.panels[tool.index()].view).unwrap_or(0) as isize;
+        self.set_view(tool, views[(at + delta).rem_euclid(views.len() as isize) as usize]);
     }
 
     pub fn rows(&self, t: Tool) -> Vec<&Row> {

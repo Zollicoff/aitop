@@ -12,12 +12,14 @@ pub enum FilterKind {
     Project,
     Model,
     Session,
+    /// A machine.
+    Host,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Filter {
     pub kind: FilterKind,
-    /// Project path, model id or session id (the row key).
+    /// Project path, model id, session id or machine name (the row key).
     pub key: Arc<str>,
     /// What to show in breadcrumbs.
     pub label: String,
@@ -29,6 +31,7 @@ impl Filter {
             FilterKind::Project => &e.project_path,
             FilterKind::Model => &e.model,
             FilterKind::Session => &e.session,
+            FilterKind::Host => &e.host,
         };
         **field == *self.key
     }
@@ -54,6 +57,8 @@ mod tests {
         assert!(!f(FilterKind::Project, "/code/api").matches(&e));
         assert!(f(FilterKind::Session, "s1").matches(&e));
         assert!(f(FilterKind::Model, "m").matches(&e));
+        assert!(f(FilterKind::Host, "here").matches(&e));
+        assert!(!f(FilterKind::Host, "laptop").matches(&e));
         assert!(matches_all(&[], &e));
         assert!(!matches_all(&[f(FilterKind::Session, "s1"), f(FilterKind::Model, "x")], &e));
     }

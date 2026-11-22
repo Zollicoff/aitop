@@ -22,6 +22,8 @@ pub struct ToolSummary {
     pub projects: Vec<Row>,
     pub models: Vec<Row>,
     pub session_rows: Vec<Row>,
+    /// One row per machine.
+    pub machines: Vec<Row>,
     /// Cost per bucket (see `Summary::buckets`).
     pub series: Vec<f64>,
     /// Tokens per bucket.
@@ -135,6 +137,7 @@ pub fn summarize(
 fn summarize_tool(tool: Tool, input: &Input) -> ToolSummary {
     let mut total = Acc::default();
     let (mut projects, mut models, mut sessions) = (Groups::default(), Groups::default(), Groups::default());
+    let mut machines = Groups::default();
     let mut series = vec![0.0; input.buckets.len()];
     let mut series_tokens = vec![0u64; input.buckets.len()];
     let mut unpriced = BTreeSet::new();
@@ -143,6 +146,7 @@ fn summarize_tool(tool: Tool, input: &Input) -> ToolSummary {
         projects.add(&e.project_path, &e.project, &e.project_path, e);
         models.add(&e.model, &e.model, &e.model, e);
         sessions.add(&e.session, &e.project, &e.session, e);
+        machines.add(&e.host, &e.host, &e.host, e);
         if !e.priced {
             unpriced.insert(e.model.to_string());
         }
@@ -156,7 +160,7 @@ fn summarize_tool(tool: Tool, input: &Input) -> ToolSummary {
     disambiguate(&mut project_rows);
 
     let (today_cost, today_messages) =
-        input.selected(input.today, tool).fold((0.0, 0), |(c, n), e| (c + e.cost, n + 1));
+        input.selected(input.today, tool).fold((0.0, 0), |(c, n), e| (c + e.cost, n + e.responses()));
     let (last_ts, active_sessions) = activity(tool, input);
     ToolSummary {
         tool,
@@ -168,13 +172,18 @@ fn summarize_tool(tool: Tool, input: &Input) -> ToolSummary {
         projects: project_rows,
         models: models.into_rows(input.sort, |_| String::new()),
         session_rows: sessions.into_rows(input.sort, Acc::top_model),
+        machines: machines.into_rows(input.sort, Acc::top_model),
         series,
         series_tokens,
         last_ts,
         active_sessions,
         today_cost,
         today_messages,
-        block: tool.has_usage_windows().then(|| current_block(of_tool(input.all, tool), input.now)).flatten(),
+        // Daily totals carry no time of day, so they cannot place usage in a window.
+        block: tool
+            .has_usage_windows()
+            .then(|| current_block(of_tool(input.all, tool).filter(|e| e.rollup.is_none()), input.now))
+            .flatten(),
     }
 }
 
@@ -182,7 +191,8 @@ fn summarize_tool(tool: Tool, input: &Input) -> ToolSummary {
 fn activity(tool: Tool, input: &Input) -> (Option<i64>, usize) {
     let mut recent = input.selected(input.all, tool).rev().peekable();
     let last_ts = recent.peek().map(|e| e.ts);
-    let active: HashSet<_> = recent.take_while(|e| e.ts >= input.active_since).map(|e| &e.session).collect();
+    let active: HashSet<_> =
+        recent.take_while(|e| e.ts >= input.active_since).filter(|e| e.rollup.is_none()).map(|e| &e.session).collect();
     (last_ts, active.len())
 }
 
@@ -242,6 +252,7 @@ mod tests {
         let names: Vec<&str> = c.projects.iter().map(|r| r.name.as_str()).collect();
         assert_eq!(names, ["b/web", "a/web", "api"]);
         assert_eq!(c.session_rows[0].detail, "m", "session rows show their top model");
+        assert_eq!((c.machines.len(), c.machines[0].name.as_str(), c.machines[0].cost), (1, "here", 3.5));
         let month = summarize(&events, Range::Month, Sort::Recent, now, 5 * 60_000, &[]);
         assert_eq!(month.tool(Tool::Claude).projects[0].name, "api");
         assert!(all.tool(Tool::Codex).block.is_none());
@@ -272,9 +283,38 @@ mod tests {
         assert_eq!(s.tool(Tool::Codex).cost, 8.0, "other tools are unaffected");
         assert_eq!(s.total_cost, 15.0, "totals ignore filters");
         assert_eq!(s.active_sessions, 4);
+        // Narrowing to a machine works the same way.
+        events[1].host = i.get("laptop");
+        let laptop = Filter { kind: crate::aggregate::FilterKind::Host, key: "laptop".into(), label: "laptop".into() };
+        let on_laptop = summarize(&events, Range::All, Sort::Cost, now, 5 * 60_000, &[vec![laptop]]);
+        assert_eq!(on_laptop.tool(Tool::Claude).cost, 2.0);
+        assert_eq!(s.tool(Tool::Claude).machines.len(), 1, "computed before the event moved");
+        let unfiltered = summarize(&events, Range::All, Sort::Cost, now, 5 * 60_000, &[]);
+        let by_machine: Vec<(&str, f64)> =
+            unfiltered.tool(Tool::Claude).machines.iter().map(|r| (r.name.as_str(), r.cost)).collect();
+        assert_eq!(by_machine, [("here", 5.0), ("laptop", 2.0)]);
         let s3 = Filter { kind: crate::aggregate::FilterKind::Session, key: "s3".into(), label: "s3".into() };
         let narrower = summarize(&events, Range::All, Sort::Cost, now, 5 * 60_000, &[vec![api, s3]]);
         assert_eq!(narrower.tool(Tool::Claude).cost, 4.0);
+    }
+
+    #[test]
+    fn totals_count_for_what_they_stand_for() {
+        use crate::event::Rollup;
+        let now = Local::now();
+        let n = now.timestamp_millis();
+        let mut i = Interner::default();
+        let mut total = ev(&mut i, Tool::Claude, n - 1000, "t3://laptop", "t3:laptop", 9.0);
+        total.host = i.get("laptop");
+        total.rollup = Some(Rollup { responses: 40, sessions: 3 });
+        let events = [ev(&mut i, Tool::Claude, n - 2000, "/a/web", "s1", 1.0), total];
+        let s = summarize(&events, Range::All, Sort::Cost, now, 5 * 60_000, &[]);
+        let c = s.tool(Tool::Claude);
+        assert_eq!((c.cost, c.messages, c.sessions), (10.0, 41, 4));
+        assert_eq!(c.active_sessions, 1, "a daily total is not a session at work");
+        assert_eq!(c.block.as_ref().unwrap().cost, 1.0, "nor does it say when in the day");
+        let laptop = c.machines.iter().find(|r| r.name == "laptop").unwrap();
+        assert_eq!((laptop.sessions, laptop.messages), (3, 40));
     }
 
     #[test]

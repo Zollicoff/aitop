@@ -46,12 +46,19 @@ pub(super) fn draw_feed(f: &mut Frame, area: Rect, app: &App) {
     }
 
     let wide = inner.width >= 100;
+    // Say where each response was made once there is more than one machine.
+    let machines = app.multi_machine() && inner.width >= 80;
     let mut widths = vec![
         Constraint::Length(8),  // time
         Constraint::Length(12), // tool
-        Constraint::Fill(2),    // project
-        Constraint::Fill(1),    // model
     ];
+    if machines {
+        widths.push(Constraint::Length(14));
+    }
+    widths.extend([
+        Constraint::Fill(2), // project
+        Constraint::Fill(1), // model
+    ]);
     if wide {
         widths.extend([Constraint::Length(7), Constraint::Length(7), Constraint::Length(8)]);
     }
@@ -65,9 +72,14 @@ pub(super) fn draw_feed(f: &mut Frame, area: Rect, app: &App) {
         let mut cells = vec![
             Cell::from(if fresh { Line::from(val(time)) } else { Line::from(dim(time)) }),
             Cell::from(Line::from(tool)),
+        ];
+        if machines {
+            cells.push(Cell::from(Line::from(dim(format::truncate(&e.host, 14)))));
+        }
+        cells.extend([
             Cell::from(Line::from(val(e.project.to_string()))),
             Cell::from(Line::from(dim(format::short_model(&e.model)))),
-        ];
+        ]);
         let right = |s: String| Cell::from(Line::from(s).right_aligned());
         if wide {
             cells.extend([
@@ -86,7 +98,11 @@ pub(super) fn draw_feed(f: &mut Frame, area: Rect, app: &App) {
             row
         }
     });
-    let mut header = vec![Cell::from("Time"), Cell::from("Tool"), Cell::from("Project"), Cell::from("Model")];
+    let mut header = vec![Cell::from("Time"), Cell::from("Tool")];
+    if machines {
+        header.push(Cell::from("Machine"));
+    }
+    header.extend([Cell::from("Project"), Cell::from("Model")]);
     let right = |s: &'static str| Cell::from(Line::from(s).right_aligned());
     if wide {
         header.extend([right("In"), right("Out"), right("Cache")]);

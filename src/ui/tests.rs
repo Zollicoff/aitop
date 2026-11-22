@@ -156,3 +156,56 @@ fn box_style_applies() {
     theme::set_look(theme::Look::default());
     assert!(out.contains('╔') && !out.contains('╭'), "{out}");
 }
+
+#[test]
+fn machines_tab_appears_with_a_second_machine() {
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let key = |c| KeyEvent::new(c, KeyModifiers::NONE);
+    let (mut a, data) = app_with("aitop", BudgetConfig::default());
+    assert!(!text(&render(&mut a, 120, 36)).contains("Machines"), "one machine: no tab for it");
+    a.on_key(key(KeyCode::Char('M')));
+    assert_eq!(a.panels[Tool::Claude.index()].view, super::app::View::Projects);
+
+    {
+        let mut d = data.write().unwrap();
+        let mut i = Interner::default();
+        let mut e = ev(&mut i, Tool::Claude, d.events[0].ts + 1, "/code/webapp", "s9", 4.0);
+        e.host = i.get("laptop");
+        d.events.insert(1, e);
+        d.host = "here".into();
+        d.machines = 2;
+        d.version += 1;
+    }
+    a.refresh();
+    a.on_key(key(KeyCode::Char('M')));
+    a.show_feed = true;
+    let out = text(&render(&mut a, 120, 44));
+    assert!(out.contains("Machines") && out.contains("here · this one"), "{out}");
+    assert!(out.contains("laptop") && out.contains("Machine "), "the feed says where each response was made: {out}");
+    assert!(out.contains("$7.50"), "the total covers both machines: {out}");
+
+    // Help says how each remote is doing.
+    data.write().unwrap().remotes = vec![crate::collector::RemoteStatus {
+        name: "laptop".into(),
+        target: "ssh laptop".into(),
+        records: 1,
+        error: Some("Connection timed out".into()),
+        ..Default::default()
+    }];
+    a.refresh();
+    a.help = true;
+    let help = text(&render(&mut a, 120, 44));
+    assert!(help.contains("here (this one)"), "{help}");
+    assert!(help.contains("✗ laptop · 1 records · not synced: Connection timed out"), "{help}");
+    a.help = false;
+
+    // By cost the laptop ($4.00) is first; drilling in shows its projects.
+    a.on_key(key(KeyCode::Enter));
+    a.refresh();
+    let p = &a.panels[Tool::Claude.index()];
+    assert_eq!((p.view, p.crumbs[0].0.label.as_str()), (super::app::View::Projects, "laptop"));
+    assert_eq!(a.summary.as_ref().unwrap().tool(Tool::Claude).cost, 4.0);
+    // ← from the first tab wraps round to Machines.
+    a.on_key(key(KeyCode::Left));
+    assert_eq!(a.panels[Tool::Claude.index()].view, super::app::View::Machines);
+}

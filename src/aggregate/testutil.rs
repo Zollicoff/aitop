@@ -8,6 +8,7 @@ pub const DAY: i64 = 24 * super::range::HOUR;
 pub fn ev(i: &mut Interner, tool: Tool, ts: i64, project: &str, session: &str, cost: f64) -> Event {
     Event {
         tool,
+        host: i.get("here"),
         id: i.get(&format!("{ts}{project}{session}")),
         ts,
         session: i.get(session),
@@ -18,5 +19,6 @@ pub fn ev(i: &mut Interner, tool: Tool, ts: i64, project: &str, session: &str, c
         fast: false,
         cost,
         priced: true,
+        rollup: None,
     }
 }

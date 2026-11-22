@@ -129,6 +129,10 @@ impl Source for CodexSource {
         &self.roots
     }
 
+    fn add_roots(&mut self, roots: &[PathBuf]) {
+        super::merge_roots(&mut self.roots, roots);
+    }
+
     fn rate_limits(&self) -> Option<&RateLimits> {
         self.limits.as_ref()
     }
@@ -254,6 +258,7 @@ impl CodexSource {
                 let id = format!("x:{session}:{}", total.total());
                 out.push(Event {
                     tool: Tool::Codex,
+                    host: ctx.host.clone(),
                     id: ctx.interner.get(&id),
                     ts,
                     session,
@@ -264,6 +269,7 @@ impl CodexSource {
                     fast: false,
                     cost: 0.0,
                     priced: false,
+                    rollup: None,
                 });
             }
             _ => {}
@@ -325,7 +331,8 @@ mod tests {
         let mut src = CodexSource::new(vec![dir.path().to_path_buf()]);
         let mut interner = Interner::default();
         let mut projects = ProjectResolver::new();
-        let mut ctx = Ctx { interner: &mut interner, projects: &mut projects, since: None };
+        let host: std::sync::Arc<str> = "here".into();
+        let mut ctx = Ctx { interner: &mut interner, projects: &mut projects, host: &host, since: None };
         let mut out = Vec::new();
         src.scan(&mut ctx, &mut out);
         assert_eq!(out.len(), 2);

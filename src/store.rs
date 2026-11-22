@@ -3,6 +3,11 @@
 //! The tools prune their own logs (Claude Code deletes transcripts after 30
 //! days by default), so without this, long-range totals would shrink over
 //! time. Records are small (~200 bytes) and de-duplicated on load.
+//!
+//! The same record format is what `aitop export` prints and what another
+//! machine's aitop reads when it syncs (see [`crate::remote`]). A record
+//! names its machine in `h`; in the history file that is left out for this
+//! machine's own usage, so the file stays valid if the machine is renamed.
 
 use std::borrow::Cow;
 use std::fs::{File, OpenOptions};
@@ -10,11 +15,12 @@ use std::io::{BufRead, BufReader, BufWriter, Write};
 #[cfg(test)]
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::event::{Event, Interner, Tokens, Tool};
+use crate::event::{Event, Interner, Rollup, Tokens, Tool};
 
 #[derive(Serialize, Deserialize)]
 struct Record<'a> {
@@ -44,6 +50,78 @@ struct Record<'a> {
     r: u64,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     f: bool,
+    /// Machine, when it is not the one the file belongs to.
+    #[serde(borrow, default, skip_serializing_if = "Option::is_none")]
+    h: Option<Cow<'a, str>>,
+    /// Responses and sessions, when the record is a total rather than one response.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    n: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    ns: Option<u32>,
+}
+
+impl<'a> Record<'a> {
+    fn of(e: &'a Event, host: Option<&'a str>) -> Record<'a> {
+        Record {
+            t: e.tool,
+            id: Cow::Borrowed(&e.id),
+            ts: e.ts,
+            s: Cow::Borrowed(&e.session),
+            p: Cow::Borrowed(&e.project),
+            pp: Cow::Borrowed(&e.project_path),
+            m: Cow::Borrowed(&e.model),
+            i: e.tokens.input,
+            o: e.tokens.output,
+            cr: e.tokens.cache_read,
+            cw: e.tokens.cache_write,
+            cw1: e.tokens.cache_write_1h,
+            r: e.tokens.reasoning,
+            f: e.fast,
+            h: host.map(Cow::Borrowed),
+            n: e.rollup.map(|r| r.responses),
+            ns: e.rollup.map(|r| r.sessions),
+        }
+    }
+
+    fn into_event(self, interner: &mut Interner, default_host: &Arc<str>) -> Event {
+        Event {
+            tool: self.t,
+            host: match &self.h {
+                Some(h) => interner.get(h),
+                None => default_host.clone(),
+            },
+            id: interner.get(&self.id),
+            ts: self.ts,
+            session: interner.get(&self.s),
+            project: interner.get(&self.p),
+            project_path: interner.get(&self.pp),
+            model: interner.get(&self.m),
+            tokens: Tokens {
+                input: self.i,
+                output: self.o,
+                cache_read: self.cr,
+                cache_write: self.cw,
+                cache_write_1h: self.cw1,
+                reasoning: self.r,
+            },
+            fast: self.f,
+            cost: 0.0,
+            priced: false,
+            rollup: self.n.map(|responses| Rollup { responses, sessions: self.ns.unwrap_or(0) }),
+        }
+    }
+}
+
+/// One record as a line of JSON that names its machine.
+pub fn encode(e: &Event) -> String {
+    serde_json::to_string(&Record::of(e, Some(&e.host))).expect("records serialize")
+}
+
+/// Parse a line written by [`encode`] or found in a history file. A record
+/// that names no machine belongs to `default_host`.
+pub fn decode(line: &str, interner: &mut Interner, default_host: &Arc<str>) -> Option<Event> {
+    let r: Record = serde_json::from_str(line).ok()?;
+    Some(r.into_event(interner, default_host))
 }
 
 fn is_zero(v: &u64) -> bool {
@@ -52,12 +130,14 @@ fn is_zero(v: &u64) -> bool {
 
 pub struct Store {
     path: PathBuf,
+    /// The machine this history belongs to.
+    host: Arc<str>,
     writer: Option<BufWriter<File>>,
 }
 
 impl Store {
-    pub fn new(path: PathBuf) -> Store {
-        Store { path, writer: None }
+    pub fn new(path: PathBuf, host: Arc<str>) -> Store {
+        Store { path, host, writer: None }
     }
 
     pub fn default_path() -> PathBuf {
@@ -79,27 +159,9 @@ impl Store {
         let mut out = Vec::new();
         for line in BufReader::new(f).lines() {
             let Ok(line) = line else { break };
-            let Ok(r) = serde_json::from_str::<Record>(&line) else { continue };
-            out.push(Event {
-                tool: r.t,
-                id: interner.get(&r.id),
-                ts: r.ts,
-                session: interner.get(&r.s),
-                project: interner.get(&r.p),
-                project_path: interner.get(&r.pp),
-                model: interner.get(&r.m),
-                tokens: Tokens {
-                    input: r.i,
-                    output: r.o,
-                    cache_read: r.cr,
-                    cache_write: r.cw,
-                    cache_write_1h: r.cw1,
-                    reasoning: r.r,
-                },
-                fast: r.f,
-                cost: 0.0,
-                priced: false,
-            });
+            if let Some(e) = decode(&line, interner, &self.host) {
+                out.push(e);
+            }
         }
         Ok(out)
     }
@@ -117,22 +179,8 @@ impl Store {
         }
         let w = self.writer.as_mut().expect("opened above");
         for e in events {
-            let r = Record {
-                t: e.tool,
-                id: Cow::Borrowed(&e.id),
-                ts: e.ts,
-                s: Cow::Borrowed(&e.session),
-                p: Cow::Borrowed(&e.project),
-                pp: Cow::Borrowed(&e.project_path),
-                m: Cow::Borrowed(&e.model),
-                i: e.tokens.input,
-                o: e.tokens.output,
-                cr: e.tokens.cache_read,
-                cw: e.tokens.cache_write,
-                cw1: e.tokens.cache_write_1h,
-                r: e.tokens.reasoning,
-                f: e.fast,
-            };
+            let host = (e.host != self.host).then_some(&*e.host);
+            let r = Record::of(e, host);
             serde_json::to_writer(&mut *w, &r)?;
             w.write_all(b"\n")?;
         }
@@ -151,6 +199,7 @@ mod tests {
         let mut i = Interner::default();
         let e = Event {
             tool: Tool::Codex,
+            host: i.get("here"),
             id: i.get("x:1"),
             ts: 42,
             session: i.get("s"),
@@ -161,13 +210,28 @@ mod tests {
             fast: false,
             cost: 0.0,
             priced: false,
+            rollup: None,
         };
-        let mut s = Store::new(dir.path().join("sub/h.jsonl"));
-        s.append(&[&e, &e]).unwrap();
+        let other = Event { host: i.get("laptop"), id: i.get("x:2"), ..e.clone() };
+        let mut s = Store::new(dir.path().join("sub/h.jsonl"), i.get("here"));
+        s.append(&[&e, &other]).unwrap();
         std::fs::OpenOptions::new().append(true).open(s.path()).unwrap().write_all(b"garbage\n").unwrap();
         let back = s.load(&mut i).unwrap();
         assert_eq!(back.len(), 2);
         assert_eq!(back[0].tokens, e.tokens);
         assert_eq!(&*back[0].model, "gpt-5");
+        // Only another machine's records name their machine in the file...
+        let text = std::fs::read_to_string(s.path()).unwrap();
+        assert_eq!(text.matches("\"h\"").count(), 1, "{text}");
+        assert_eq!((&*back[0].host, &*back[1].host), ("here", "laptop"));
+        // ...but an exported record always does.
+        let sent = decode(&encode(&e), &mut i, &Arc::from("elsewhere")).unwrap();
+        assert_eq!(&*sent.host, "here");
+        assert_eq!(sent.tokens, e.tokens);
+        // A total keeps what it stands for.
+        let total = Event { rollup: Some(Rollup { responses: 40, sessions: 3 }), ..e.clone() };
+        let back = decode(&encode(&total), &mut i, &Arc::from("x")).unwrap();
+        assert_eq!(back.rollup, total.rollup);
+        assert_eq!((back.responses(), e.responses()), (40, 1));
     }
 }
