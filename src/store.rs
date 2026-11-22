@@ -20,7 +20,7 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::event::{Event, Interner, Rollup, Tokens, Tool};
+use crate::event::{Event, Interner, Rollup, Speed, Tokens, Tool};
 
 #[derive(Serialize, Deserialize)]
 struct Record<'a> {
@@ -48,8 +48,11 @@ struct Record<'a> {
     cw1: u64,
     #[serde(default, skip_serializing_if = "is_zero")]
     r: u64,
+    /// Fast and ultrafast speed tiers.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     f: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    uf: bool,
     /// Machine, when it is not the one the file belongs to.
     #[serde(borrow, default, skip_serializing_if = "Option::is_none")]
     h: Option<Cow<'a, str>>,
@@ -81,7 +84,8 @@ impl<'a> Record<'a> {
             cw: e.tokens.cache_write,
             cw1: e.tokens.cache_write_1h,
             r: e.tokens.reasoning,
-            f: e.fast,
+            f: e.speed == Speed::Fast,
+            uf: e.speed == Speed::Ultrafast,
             h: host.map(Cow::Borrowed),
             n: e.rollup.map(|r| r.responses),
             ns: e.rollup.map(|r| r.sessions),
@@ -111,7 +115,11 @@ impl<'a> Record<'a> {
                 cache_write_1h: self.cw1,
                 reasoning: self.r,
             },
-            fast: self.f,
+            speed: match (self.uf, self.f) {
+                (true, _) => Speed::Ultrafast,
+                (false, true) => Speed::Fast,
+                (false, false) => Speed::Standard,
+            },
             cost: 0.0,
             priced: false,
             rollup: self.n.map(|responses| Rollup {
@@ -219,7 +227,7 @@ mod tests {
             project_path: i.get("/p"),
             model: i.get("gpt-5"),
             tokens: Tokens { input: 1, output: 2, cache_read: 3, cache_write: 0, cache_write_1h: 0, reasoning: 1 },
-            fast: false,
+            speed: Speed::Ultrafast,
             cost: 0.0,
             priced: false,
             rollup: None,
@@ -232,6 +240,7 @@ mod tests {
         assert_eq!(back.len(), 2);
         assert_eq!(back[0].tokens, e.tokens);
         assert_eq!(&*back[0].model, "gpt-5");
+        assert_eq!(back[0].speed, Speed::Ultrafast);
         // Only another machine's records name their machine in the file...
         let text = std::fs::read_to_string(s.path()).unwrap();
         assert_eq!(text.matches("\"h\"").count(), 1, "{text}");

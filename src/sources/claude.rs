@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 
 use super::{discover, parse_ts, prune, Change, Ctx, Source, SourceStatus, Tail};
-use crate::event::{Event, Tokens, Tool};
+use crate::event::{Event, Speed, Tokens, Tool};
 use crate::paths::{expand, home};
 use crate::project::decode_claude_dir;
 
@@ -205,7 +205,7 @@ fn parse_line(line: &[u8], fallback_session: &str, fallback_project: &str, ctx: 
         project_path,
         model: ctx.interner.get(&model),
         tokens,
-        fast: u.speed.as_deref() == Some("fast"),
+        speed: if u.speed.as_deref() == Some("fast") { Speed::Fast } else { Speed::Standard },
         cost: 0.0,
         priced: false,
         rollup: None,
@@ -256,7 +256,7 @@ mod tests {
         assert_eq!(m2.tokens.cache_write_1h, 100);
         assert_eq!(m2.tokens.cache_write, 0);
         assert_eq!(m2.tokens.reasoning, 5);
-        assert!(m2.fast);
+        assert_eq!(m2.speed, Speed::Fast);
         assert_eq!(&*m2.project, "proj");
         assert!(out.iter().all(|e| &*e.session == "s1"));
 

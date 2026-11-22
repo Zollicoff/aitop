@@ -21,7 +21,7 @@ Inspired by [btop](https://github.com/aristocratos/btop).
 - **Options menu, like btop.** Esc opens Options · Help · Quit; every setting can be changed live and is saved to your config file, comments and all.
 - **Status line.** `aitop statusline` puts today's spend, the 5-hour window and budgets in tmux, your prompt or Claude Code's status line.
 - **History that outlives the logs.** Claude Code deletes transcripts after 30 days; aitop keeps a compact copy of every usage record in `~/.local/share/aitop/history.jsonl`, so "all time" really means all time.
-- **Works with T3 Code, no setup.** If [T3 Code](https://github.com/pingdotgg/t3code) is running, aitop finds the transcript folders it uses and shows the machines you have linked in it.
+- **Works with T3 Code, no setup.** If [T3 Code](https://github.com/pingdotgg/t3code) is running, aitop finds the transcript folders it uses, shows the machines you have linked in it, and adds the other agents T3 tracks (Grok, Cursor, Pi, OpenCode, Antigravity, …).
 - **All your machines.** Usage from your other machines, per machine, through T3 Code's linked environments or over ssh. A response that two machines can see is counted once.
 - **Scriptable.** `aitop report` prints the same numbers as a table or JSON.
 
@@ -66,7 +66,7 @@ aitop config > ~/.config/aitop/config.toml   # start a config file
 | Key | Action |
 | --- | --- |
 | `1` `2` `3` `4` / `[` `]` | range: today · 7 days · 30 days · all time |
-| `tab` / `shift-tab` | focus next / previous tool |
+| `tab` / `shift-tab` | focus next / previous panel |
 | `↑` `↓` / `j` `k`, `PgUp` `PgDn`, `g` `G` | move the selection |
 | `←` `→` / `h` `l` (or `p` `m` `S`) | projects · models · sessions |
 | `M` | machines, when there is usage from more than one |
@@ -91,7 +91,8 @@ Everything is read from files the tools already write on your machine:
 | Tool | Location | What's in it |
 | --- | --- | --- |
 | Claude Code | `~/.claude/projects/**/*.jsonl` (also `~/.config/claude/projects`, or `$CLAUDE_CONFIG_DIR`) | per-response token usage, model, cwd, session; sub-agent transcripts included |
-| Codex CLI | `~/.codex/sessions/**/rollout-*.jsonl` and `archived_sessions` (or `$CODEX_HOME`) | cumulative token counts per session, model, cwd, rate-limit snapshots |
+| Codex CLI | `~/.codex/sessions/**/rollout-*.jsonl` and `archived_sessions` (or `$CODEX_HOME`) | each request's token usage and the session's running total, model, speed tier, cwd, rate-limit snapshots |
+| Other agents (Grok, Cursor, Pi, …) | [T3 Code](#t3-code), when it is running | daily totals and cost per agent and model |
 
 aitop never sends your data anywhere. `aitop pricing update` downloads the public [LiteLLM price list](https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json). Beyond that it only talks to your own machines, to read their usage: the T3 Code server on this one and the machines linked in it (see [T3 Code](#t3-code)), and any you list under `[[remote]]`, over `ssh` (see [Several machines](#several-machines)).
 
@@ -106,9 +107,9 @@ cost = input × input_price + output × output_price
 ```
 
 - Reasoning/thinking tokens are part of output and billed as output.
-- Codex reports cumulative totals; aitop bills the difference between consecutive snapshots and does not double-count resumed sessions.
+- Codex logs each request's usage next to the session's running total; aitop bills each request once and uses the total to check it. History that a forked session or sub-agent copies from its parent is not billed again, and neither is a resumed or copied log. (These are the rules T3 Code's own reader follows, so the two agree.)
 - Claude streams a response as several log lines repeating the same usage; these are de-duplicated on message and request id.
-- Prompts over 200K tokens use long-context prices where the model has them; Claude fast mode applies its premium.
+- Long prompts use long-context prices where the model has them (over 200K tokens, or the threshold the price list gives). Claude fast mode applies its premium, and Codex requests made at the fast ("priority") or ultrafast speed tier are charged that tier's prices.
 - Models without a known price are flagged (`?` / `*` in tables, a warning in the footer). Add them under `[pricing]` in the config, or run `aitop pricing update`.
 
 Prices come from, later ones winning: the table built into aitop, one downloaded with `aitop pricing update`, the price list [T3 Code](#t3-code) keeps on this machine if it is installed, and `[pricing]` in the config. `aitop pricing` shows which price each model in your logs got, and `aitop doctor` which lists are in use.
@@ -120,6 +121,8 @@ Prices come from, later ones winning: the table built into aitop, one downloaded
 - **Its transcript folders.** aitop asks T3 which folders it keeps Claude Code and Codex transcripts in on this machine and reads those as well, so usage from T3's own config folders is counted without listing them under `[paths]`. (Folders you do set under `[paths]` are used as they are.)
 - **Its linked machines.** Every machine linked in T3 (Settings → Environments → Linked environments) shows up under **Machines**, with its usage per tool, model and day.
 
+- **Its other agents.** aitop reads Claude Code's and Codex's logs itself. Whatever else T3 tracks (Grok Build, Cursor, Pi, OpenCode, Antigravity, Muse Code, and agents it adds later) appears in a third panel, **Other agents**, once there is any usage of them, on this machine or a linked one. Its tabs are Agents, Models and Machines, and its numbers are T3's daily totals and costs.
+
 What a linked machine shows is what T3 shares: totals, not individual responses. So it has cost, tokens, models and the daily chart, but no projects or sessions (it appears as one row, "*name* · via T3 Code"), and it is left out of the activity feed, the "active" count and the 5-hour window. Its cost is the one T3 reports, worked out on that machine response by response. For full detail from another machine, read it over ssh instead (next section); a machine read both ways is only counted once.
 
 How aitop gets access, so you know what it does:
@@ -127,6 +130,8 @@ How aitop gets access, so you know what it does:
 - On this machine it runs T3's own `t3 auth session issue` to give itself a session that can only read usage and the list of links. The token is kept in `~/.local/share/aitop/t3.json`, readable only by you.
 - For a linked machine it asks the local T3 server to pair it. That needs a session allowed to manage access, which aitop creates for five minutes and revokes as soon as the pairing is done. The session it ends up with on the linked machine can only read usage.
 - Every session is listed in T3 under **Settings → Sharing & access** as `aitop`, where you can revoke it. `[t3] enabled = false` in the config makes aitop leave T3 alone entirely.
+
+**If aitop and T3's Usage page disagree.** They read the same logs by the same rules, with one difference: aitop also reads Codex's `archived_sessions` folder, and T3 does not, so sessions you have archived count here and not there.
 
 **Prices.** T3 keeps a current price list on each machine (LiteLLM's, which it refreshes by itself). aitop uses that list for this machine's usage, so new models are priced without running `aitop pricing update` and costs line up with T3's own Usage page; `[pricing]` in the config still wins. For linked machines aitop keeps the cost T3 reports. `[t3] prices = false` goes back to aitop's own prices for both.
 

@@ -67,7 +67,7 @@ impl App {
             KeyCode::Left | KeyCode::Char('h') => self.cycle_view(f, -1),
             KeyCode::Char('p') => self.set_view(f, View::Projects),
             KeyCode::Char('m') => self.set_view(f, View::Models),
-            KeyCode::Char('S') => self.set_view(f, View::Sessions),
+            KeyCode::Char('S') if f.has_reader() => self.set_view(f, View::Sessions),
             KeyCode::Char('M') if self.multi_machine() => self.set_view(f, View::Machines),
             KeyCode::Char('1') => self.range = Range::Today,
             KeyCode::Char('2') => self.range = Range::Week,

@@ -33,6 +33,16 @@ pub fn run(ctx: &Context) -> Result<()> {
     let now = Local::now().timestamp_millis();
     for (i, st) in d.status.iter().enumerate() {
         let n = d.events.iter().filter(|e| e.tool == st.tool).count();
+        if !st.tool.has_reader() {
+            // Nothing is read for these here; they are whatever T3 Code reported.
+            if n > 0 {
+                let agents: std::collections::BTreeSet<&str> =
+                    d.events.iter().filter(|e| e.tool == st.tool).map(|e| &*e.project).collect();
+                let agents: Vec<&str> = agents.into_iter().collect();
+                println!("{}  ({n} daily totals from T3 Code: {})", st.tool.name(), agents.join(", "));
+            }
+            continue;
+        }
         println!("{}  ({} files, {} records)", st.tool.name(), st.files, n);
         for (p, exists) in &st.roots {
             println!("  {} {}", if *exists { "✓" } else { "✗" }, tilde(p));

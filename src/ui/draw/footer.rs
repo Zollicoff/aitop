@@ -72,6 +72,9 @@ pub(super) fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
             .summary
             .iter()
             .flat_map(|s| s.tools.iter())
+            // Not for agents known only through T3 Code: those are often local
+            // models, which cost nothing, and their rows are marked anyway.
+            .filter(|t| t.tool.has_reader())
             .flat_map(|t| t.unpriced_models.iter().map(String::as_str))
             .filter(|m| *m != "unknown")
             .collect();

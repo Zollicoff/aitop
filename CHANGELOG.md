@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Other agents: whatever else T3 Code tracks besides Claude Code and Codex
+  (Grok Build, Cursor, Pi, OpenCode, Antigravity, Muse Code, …) appears in
+  a third panel once there is usage of it, on this machine or a linked
+  one, with Agents, Models and Machines tabs. `aitop report --tool other`
+  prints it.
+
+### Changed
+
+- Codex logs are read the way T3 Code reads them: one record per request,
+  checked against the session's running total. History that a forked
+  session or sub-agent copies from its parent is no longer billed again.
+  Sessions read this way replace their older records in the local
+  history; sessions whose logs are gone keep what was recorded.
+- Codex requests made at the fast ("priority") or ultrafast speed tier are
+  charged that tier's prices, and long-context prices start at the
+  threshold the price list gives (272K tokens for some models). Run
+  `aitop pricing update` to get these tiers without T3 Code.
+
 ## [2.2.1] - 2026-11-21
 
 ### Changed

@@ -33,8 +33,11 @@ pub enum View {
 impl View {
     pub const ALL: [View; 4] = [View::Projects, View::Models, View::Sessions, View::Machines];
 
-    pub fn label(self) -> &'static str {
+    /// The tab's name in `tool`'s panel.
+    pub fn label(self, tool: Tool) -> &'static str {
         match self {
+            // The shared panel has one row per agent where the others have projects.
+            View::Projects if !tool.has_reader() => "Agents",
             View::Projects => "Projects",
             View::Models => "Models",
             View::Sessions => "Sessions",
@@ -260,10 +263,11 @@ impl App {
     pub fn visible(&self) -> Vec<Tool> {
         let shown: Vec<Tool> = Tool::ALL
             .into_iter()
-            .filter(|&t| !self.opts.cfg.hide_missing || self.detected(t) || self.has_data(t))
+            // A tool aitop cannot read itself is only shown once there is usage of it.
+            .filter(|&t| self.has_data(t) || (t.has_reader() && (!self.opts.cfg.hide_missing || self.detected(t))))
             .collect();
         if shown.is_empty() {
-            Tool::ALL.to_vec()
+            Tool::ALL.into_iter().filter(|t| t.has_reader()).collect()
         } else {
             shown
         }
@@ -274,18 +278,22 @@ impl App {
         self.snap.machines > 1 || !self.snap.remotes.is_empty()
     }
 
-    /// The table views on offer, in tab order.
-    pub fn views(&self) -> &'static [View] {
-        if self.multi_machine() {
-            &View::ALL
-        } else {
-            &View::ALL[..3]
-        }
+    /// The table views `tool`'s panel offers, in tab order.
+    pub fn views(&self, tool: Tool) -> Vec<View> {
+        View::ALL
+            .into_iter()
+            .filter(|v| match v {
+                View::Machines => self.multi_machine(),
+                // Totals from T3 Code do not say which sessions they were.
+                View::Sessions => tool.has_reader(),
+                _ => true,
+            })
+            .collect()
     }
 
     /// Step the panel's view `delta` tabs along, wrapping around.
     pub(super) fn cycle_view(&mut self, tool: Tool, delta: isize) {
-        let views = self.views();
+        let views = self.views(tool);
         let at = views.iter().position(|&v| v == self.panels[tool.index()].view).unwrap_or(0) as isize;
         self.set_view(tool, views[(at + delta).rem_euclid(views.len() as isize) as usize]);
     }

@@ -67,7 +67,13 @@ fn draw_body(f: &mut Frame, area: Rect, app: &mut App) {
     };
     let constraints: Vec<Constraint> = tools
         .iter()
-        .map(|&t| if app.detected(t) || app.has_data(t) { Constraint::Fill(1) } else { Constraint::Length(3) })
+        .map(|&t| match (app.detected(t) || app.has_data(t), t.has_reader()) {
+            (false, _) => Constraint::Length(3),
+            (true, true) => Constraint::Fill(1),
+            // The shared panel is usually small; it gives room to the others.
+            (true, false) if tools.len() > 1 => Constraint::Max(11),
+            (true, false) => Constraint::Fill(1),
+        })
         .collect();
     let areas = Layout::vertical(constraints).split(area);
     for (i, &t) in tools.iter().enumerate() {
@@ -82,7 +88,7 @@ fn draw_welcome(f: &mut Frame, area: Rect, app: &App) {
         Line::from(""),
         Line::from(dim("aitop reads the local logs written by:")),
     ];
-    for st in &app.snap.status {
+    for st in app.snap.status.iter().filter(|st| st.tool.has_reader()) {
         let paths: Vec<String> = st.roots.iter().map(|(p, _)| tilde(p)).collect();
         lines.push(Line::from(vec![
             ratatui::text::Span::styled(

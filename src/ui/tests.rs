@@ -209,3 +209,40 @@ fn machines_tab_appears_with_a_second_machine() {
     a.on_key(key(KeyCode::Left));
     assert_eq!(a.panels[Tool::Claude.index()].view, super::app::View::Machines);
 }
+
+#[test]
+fn other_agents_share_a_panel_once_there_is_usage() {
+    use crate::event::Rollup;
+    let (mut a, data) = app_with("aitop", BudgetConfig::default());
+    let out = text(&render(&mut a, 120, 40));
+    assert!(!out.contains("Other agents"), "nothing to show yet: {out}");
+    assert_eq!(a.visible(), [Tool::Claude, Tool::Codex]);
+
+    {
+        let mut d = data.write().unwrap();
+        let mut i = Interner::default();
+        let mut e = ev(&mut i, Tool::Other, d.events[0].ts, "t3-agent://grok", "t3:here", 0.2);
+        e.project = i.get("Grok Build");
+        e.model = i.get("grok-build");
+        e.rollup = Some(Rollup { responses: 7, sessions: 3, cost: Some(0.2), unpriced: false });
+        d.events.insert(0, e);
+        d.version += 1;
+    }
+    a.refresh();
+    assert_eq!(a.visible(), [Tool::Claude, Tool::Codex, Tool::Other]);
+    let out = text(&render(&mut a, 120, 44));
+    assert!(out.contains("Other agents") && out.contains("Agents") && out.contains("Grok Build"), "{out}");
+    assert!(out.contains("$4.45"), "the header total includes it: {out}");
+    // It is the smallest panel, and can be focused and zoomed like the others.
+    a.focus = Tool::Other;
+    a.zoom = true;
+    let zoomed = text(&render(&mut a, 120, 30));
+    assert!(zoomed.contains("totals from T3 Code") && zoomed.contains("Agent "), "{zoomed}");
+    // No Sessions tab here (T3 Code does not say which sessions), so an agent opens on its models.
+    assert!(zoomed.contains("Agents   Models") && !zoomed.contains("Models   Sessions"), "{zoomed}");
+    a.on_key(ratatui::crossterm::event::KeyEvent::new(
+        ratatui::crossterm::event::KeyCode::Enter,
+        ratatui::crossterm::event::KeyModifiers::NONE,
+    ));
+    assert_eq!(a.panels[Tool::Other.index()].view, super::app::View::Models);
+}

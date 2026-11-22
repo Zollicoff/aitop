@@ -16,7 +16,7 @@ pub fn ev(i: &mut Interner, tool: Tool, ts: i64, project: &str, session: &str, c
         project_path: i.get(project),
         model: i.get("m"),
         tokens: Tokens { input: 10, output: 5, ..Default::default() },
-        fast: false,
+        speed: crate::event::Speed::Standard,
         cost,
         priced: true,
         rollup: None,

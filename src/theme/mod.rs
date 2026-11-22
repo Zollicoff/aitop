@@ -179,6 +179,7 @@ pub fn accent(t: Tool) -> Color {
     out(match t {
         Tool::Claude => p.claude,
         Tool::Codex => p.codex,
+        Tool::Other => p.bright,
     })
 }
 

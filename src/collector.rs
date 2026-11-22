@@ -126,6 +126,10 @@ pub struct Collector {
     covered: HashSet<String>,
     /// Where `covered` is remembered between runs.
     covered_path: Option<PathBuf>,
+    /// Codex sessions read request by request (ids starting `x2:`), and how
+    /// many records of the older kind are held.
+    recounted: HashSet<Arc<str>>,
+    legacy_codex: usize,
     pub data: Shared,
 }
 
@@ -171,8 +175,8 @@ impl Collector {
                 .collect(),
             pricing_sources: pricer.table().sources.clone(),
             history_path: history.clone(),
-            status: sources.iter().map(|s| SourceStatus::new(s.tool(), s.roots())).collect(),
-            limits: vec![None; sources.len()],
+            status: all_tools(sources.iter().map(|s| SourceStatus::new(s.tool(), s.roots())).collect()),
+            limits: vec![None; Tool::ALL.len()],
             ..Default::default()
         };
         Collector {
@@ -196,6 +200,8 @@ impl Collector {
             t3_costs: cfg.t3.use_prices(),
             covered,
             covered_path,
+            recounted: HashSet::new(),
+            legacy_codex: 0,
             data: Arc::new(RwLock::new(data)),
         }
     }
@@ -235,7 +241,9 @@ impl Collector {
 
     /// A daily total for a machine whose usage is already held in detail.
     fn hidden(&self, e: &Event) -> bool {
+        // (An agent aitop has no reader for is only ever known by its totals.)
         e.rollup.is_some()
+            && e.tool.has_reader()
             && (t3::read_on(e).is_some_and(|h| self.covered.contains(h)) || self.covered.contains(&normalize(&e.host)))
     }
 
@@ -255,9 +263,20 @@ impl Collector {
             names.sort();
             let _ = std::fs::write(path, serde_json::to_string(&names).unwrap_or_default());
         }
+        self.prune();
+    }
+
+    /// A Codex record made by an older aitop, for a session that has since
+    /// been read again request by request (which counts it more exactly).
+    fn superseded(&self, e: &Event) -> bool {
+        is_legacy_codex(e) && self.recounted.contains(&e.session)
+    }
+
+    /// Drop the held records that are now hidden or superseded.
+    fn prune(&mut self) {
         let mut d = self.data.write().unwrap();
         let before = d.events.len();
-        d.events.retain(|e| !self.hidden(e));
+        d.events.retain(|e| !(self.hidden(e) || self.superseded(e)));
         if d.events.len() == before {
             return;
         }
@@ -269,6 +288,7 @@ impl Collector {
             h.newest = h.newest.max(e.ts);
         }
         drop(d);
+        self.legacy_codex = 0;
         self.held = held;
         self.publish_held();
     }
@@ -282,14 +302,24 @@ impl Collector {
     fn merge_t3(&mut self, out: t3::Outcome) {
         self.add_roots(&out.roots);
         self.cover(out.local_hosts);
+        let mut error = out.error;
+        match out.local {
+            Some(Ok(totals)) => {
+                let events = t3::local_events(&self.host.clone(), &totals, &mut self.interner, self.t3_costs);
+                self.merge(events, true);
+            }
+            Some(Err(e)) => error = error.or(Some(format!("other agents: {e}"))),
+            None => {}
+        }
         let now = chrono::Local::now().timestamp_millis();
         for machine in out.machines {
             let mut covered = self.covered.contains(&normalize(&machine.name));
             let (error, synced) = match &machine.result {
                 Ok(totals) => {
                     // Everything it reported was read on machines held in detail.
+                    let mut readable = totals.iter().filter(|t| t.total.tool.has_reader()).peekable();
                     covered |=
-                        !totals.is_empty() && totals.iter().all(|t| self.covered.contains(&normalize(&t.total.host)));
+                        readable.peek().is_some() && readable.all(|t| self.covered.contains(&normalize(&t.total.host)));
                     let events = t3::events(&machine, totals, &mut self.interner, self.t3_costs);
                     self.merge(events, true);
                     (None, Some(now))
@@ -315,7 +345,7 @@ impl Collector {
             d.remotes[at].error = error;
             d.remotes[at].synced = synced.or(d.remotes[at].synced);
         }
-        self.data.write().unwrap().t3 = Some(T3Status { version: out.version, read: true, error: out.error });
+        self.data.write().unwrap().t3 = Some(T3Status { version: out.version, read: true, error });
         self.publish_held();
     }
 
@@ -446,8 +476,9 @@ impl Collector {
         let mut events = Vec::new();
         let mut ctx =
             Ctx { interner: &mut self.interner, projects: &mut self.projects, host: &self.host, since: self.since };
-        let status: Vec<SourceStatus> = self.sources.iter_mut().map(|s| s.scan(&mut ctx, &mut events)).collect();
-        let limits: Vec<Option<RateLimits>> = self.sources.iter().map(|s| s.rate_limits().cloned()).collect();
+        let status = all_tools(self.sources.iter_mut().map(|s| s.scan(&mut ctx, &mut events)).collect());
+        let mut limits: Vec<Option<RateLimits>> = self.sources.iter().map(|s| s.rate_limits().cloned()).collect();
+        limits.resize(Tool::ALL.len(), None);
         let changed = self.merge(events, true);
         let mut d = self.data.write().unwrap();
         d.status = status;
@@ -465,7 +496,11 @@ impl Collector {
 
     /// Add newly read events: de-duplicate, price, persist, insert.
     fn merge(&mut self, mut incoming: Vec<Event>, persist: bool) -> bool {
-        incoming.retain(|e| !self.hidden(e));
+        let mut recounted = false;
+        for e in incoming.iter().filter(|e| e.id.starts_with("x2:")) {
+            recounted |= self.recounted.insert(e.session.clone());
+        }
+        incoming.retain(|e| !self.hidden(e) && !self.superseded(e));
         let (added, replaced) = self.dedupe(incoming);
         if added.is_empty() && replaced.is_empty() {
             return false;
@@ -478,8 +513,12 @@ impl Collector {
             h.records += 1;
             h.newest = h.newest.max(e.ts);
         }
+        self.legacy_codex += added.iter().filter(|e| is_legacy_codex(e)).count();
         self.data.write().unwrap().insert(added, replaced);
         self.publish_held();
+        if recounted && self.legacy_codex > 0 {
+            self.prune();
+        }
         true
     }
 
@@ -525,6 +564,19 @@ impl Collector {
             self.data.write().unwrap().history_error = Some(err.to_string());
         }
     }
+}
+
+/// `status` (one entry per log reader) with an entry, naming no folders, for
+/// each tool that has none, so it can be indexed by `Tool::index()`.
+fn all_tools(mut status: Vec<SourceStatus>) -> Vec<SourceStatus> {
+    status.extend(Tool::ALL[status.len()..].iter().map(|&t| SourceStatus::new(t, &[])));
+    status
+}
+
+/// A Codex record as aitop made them before 2.2.2: one per change in a
+/// session's running total, which billed a fork's copied history again.
+fn is_legacy_codex(e: &Event) -> bool {
+    e.tool == Tool::Codex && e.id.starts_with("x:")
 }
 
 /// What tells one copy of a record from another with the same id: for a
@@ -716,6 +768,7 @@ mod tests {
             sessions: 2,
             cost: 4.5,
             unpriced: 0,
+            agent: "claude".into(),
         };
         t3::DayTotal { total, ts }
     }
@@ -793,6 +846,73 @@ mod tests {
         let mut c3 = Collector::new(&cfg, Some(hist));
         c3.load_history();
         assert!(c3.data.read().unwrap().events.is_empty(), "remembered in machines.json");
+    }
+
+    #[test]
+    fn other_agents_come_from_t3_also_for_this_machine() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = with_remote(dir.path(), &dir.path().join("missing"));
+        let hist = dir.path().join("history.jsonl");
+        let mut c = Collector::new(&cfg, Some(hist.clone()));
+        let grok = |host: &str, output: u64| {
+            let mut t = day_total(host, "2026-11-15", 2000, output);
+            t.total.tool = Tool::Other;
+            t.total.agent = "grok".into();
+            t.total.model = "grok-build".into();
+            t
+        };
+        let read = t3::Outcome {
+            version: "0.1.12".into(),
+            local_hosts: vec!["Desk-Box.local".into()],
+            // This machine's own Grok usage, and the same reported back over a link to it.
+            local: Some(Ok(vec![grok("Desk-Box.local", 5)])),
+            machines: vec![
+                t3::Machine { id: "e2".into(), name: "Desk again".into(), result: Ok(vec![grok("Desk-Box.local", 5)]) },
+                t3::Machine { id: "e1".into(), name: "Studio".into(), result: Ok(vec![grok("studio.local", 8)]) },
+            ],
+            ..Default::default()
+        };
+        c.merge_t3(read);
+        let d = c.data.read().unwrap();
+        let seen: Vec<(&str, &str, Tool, u64)> =
+            d.events.iter().map(|e| (&*e.host, &*e.project, e.tool, e.tokens.output)).collect();
+        // Kept although this machine is read in detail (aitop has no Grok reader), and only once.
+        assert_eq!(seen, [("desk", "Grok Build", Tool::Other, 5), ("Studio", "Grok Build", Tool::Other, 8)]);
+        assert!(d.events.iter().all(|e| e.cost == 4.5 && e.priced));
+        assert_eq!(d.status.len(), Tool::ALL.len());
+        assert!(d.status[Tool::Other.index()].roots.is_empty());
+        drop(d);
+        // It survives a restart through the history file.
+        let mut c2 = Collector::new(&cfg, Some(hist));
+        c2.load_history();
+        assert_eq!(c2.data.read().unwrap().events.len(), 2);
+    }
+
+    #[test]
+    fn recounted_codex_sessions_replace_their_old_records() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = with_remote(dir.path(), &dir.path().join("missing"));
+        let mut c = Collector::new(&cfg, None);
+        let mut i = Interner::default();
+        let codex = |i: &mut Interner, id: &str, session: &str, cost: f64| Event {
+            id: i.get(id),
+            ..crate::aggregate::testutil::ev(i, Tool::Codex, 1000, "/code/api", session, cost)
+        };
+        // History from an older aitop: two sessions, one of which no longer has logs.
+        let old = vec![codex(&mut i, "x:kept:500", "kept", 1.0), codex(&mut i, "x:gone:900", "gone", 2.0)];
+        c.merge(old, false);
+        assert_eq!(c.data.read().unwrap().events.len(), 2);
+        // The scan reads `kept` again, request by request.
+        c.merge(vec![codex(&mut i, "x2:kept:1000:5.0.5:1", "kept", 0.5)], false);
+        let ids = |c: &Collector| c.data.read().unwrap().events.iter().map(|e| e.id.to_string()).collect::<Vec<_>>();
+        assert_eq!(ids(&c), ["x:gone:900", "x2:kept:1000:5.0.5:1"]);
+        // Its old records stay out, also when history is loaded in one go.
+        c.merge(vec![codex(&mut i, "x:kept:700", "kept", 1.0)], false);
+        assert_eq!(ids(&c).len(), 2);
+        let mut c2 = Collector::new(&cfg, None);
+        let mixed = vec![codex(&mut i, "x:kept:500", "kept", 1.0), codex(&mut i, "x2:kept:1000:5.0.5:1", "kept", 0.5)];
+        c2.merge(mixed, false);
+        assert_eq!(ids(&c2), ["x2:kept:1000:5.0.5:1"]);
     }
 
     #[test]

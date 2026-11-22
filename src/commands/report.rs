@@ -94,6 +94,8 @@ impl<'a> Report<'a> {
         let sections = Tool::ALL
             .into_iter()
             .filter(|t| args.tool.is_none_or(|o| o == *t))
+            // The shared panel for other agents is left out while it is empty.
+            .filter(|t| t.has_reader() || args.tool == Some(*t) || summary.tool(*t).last_ts.is_some())
             .map(|t| {
                 let ts = summary.tool(t);
                 let rows = match args.by {
@@ -194,7 +196,10 @@ impl<'a> Report<'a> {
                 out += "  (no usage)\n";
                 continue;
             }
-            let header = self.by.key().to_uppercase();
+            let header = match self.by {
+                By::Project if !t.has_reader() => "AGENT".to_string(),
+                by => by.key().to_uppercase(),
+            };
             let _ = writeln!(
                 out,
                 "  {header:<34} {:>8} {:>9} {:>9} {:>9} {:>10}",

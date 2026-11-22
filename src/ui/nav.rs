@@ -48,7 +48,9 @@ impl App {
             FilterKind::Host => [View::Projects, View::Sessions, View::Models],
             _ => [View::Sessions, View::Models, View::Projects],
         };
-        let next = inside.into_iter().find(|v| !narrowed.contains(&v.filter_kind())).unwrap_or(view);
+        let offered = self.views(tool);
+        let next =
+            inside.into_iter().find(|v| offered.contains(v) && !narrowed.contains(&v.filter_kind())).unwrap_or(view);
         let p = &mut self.panels[tool.index()];
         p.crumbs.push((filter, view));
         p.query.clear();

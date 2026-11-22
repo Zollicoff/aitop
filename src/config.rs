@@ -116,6 +116,7 @@ impl Config {
         let v = match tool {
             Tool::Claude => &self.paths.claude,
             Tool::Codex => &self.paths.codex,
+            Tool::Other => return None,
         };
         (!v.is_empty()).then(|| v.iter().map(|p| expand(p)).collect())
     }

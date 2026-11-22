@@ -11,15 +11,19 @@ use serde::{Deserialize, Serialize};
 pub enum Tool {
     Claude,
     Codex,
+    /// Every agent aitop has no log reader for (Grok, Cursor, Pi, …). Their
+    /// usage comes from T3 Code, as totals; see [`crate::t3`].
+    Other,
 }
 
 impl Tool {
-    pub const ALL: [Tool; 2] = [Tool::Claude, Tool::Codex];
+    pub const ALL: [Tool; 3] = [Tool::Claude, Tool::Codex, Tool::Other];
 
     pub fn name(self) -> &'static str {
         match self {
             Tool::Claude => "Claude Code",
             Tool::Codex => "Codex",
+            Tool::Other => "Other agents",
         }
     }
 
@@ -27,7 +31,14 @@ impl Tool {
         match self {
             Tool::Claude => "claude",
             Tool::Codex => "codex",
+            Tool::Other => "other",
         }
+    }
+
+    /// Whether aitop reads this tool's own logs (and so knows its projects,
+    /// sessions and single responses).
+    pub fn has_reader(self) -> bool {
+        self != Tool::Other
     }
 
     /// Whether the tool's subscription is metered in 5-hour windows.
@@ -105,8 +116,8 @@ pub struct Event {
     pub project_path: Arc<str>,
     pub model: Arc<str>,
     pub tokens: Tokens,
-    /// Claude "fast mode" responses are billed at a premium.
-    pub fast: bool,
+    /// The speed tier the response ran at, which changes its price.
+    pub speed: Speed,
     /// Estimated cost in USD (filled in by the collector from the price table).
     pub cost: f64,
     /// False when no price was found for `model`.
@@ -114,6 +125,16 @@ pub struct Event {
     /// Set when this is not one response but a total another program
     /// reported (see [`crate::t3`]): a machine's usage of one model on one day.
     pub rollup: Option<Rollup>,
+}
+
+/// The speed tier of a response: Claude's fast mode, Codex's service tiers.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum Speed {
+    #[default]
+    Standard,
+    /// Claude "fast mode"; Codex "priority" (also called fast).
+    Fast,
+    Ultrafast,
 }
 
 /// What a summarised [`Event`] stands for.

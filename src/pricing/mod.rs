@@ -14,14 +14,25 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
-use crate::event::{Event, Tokens};
+use crate::event::{Event, Speed, Tokens};
 
 pub use litellm::update;
 
 pub(super) const BUILTIN: &str = include_str!("prices.json");
 
-/// Prompts above this many tokens use the `*_above_200k` tier when a model has one.
+/// Prompts above this many tokens use the `*_above_200k` tier when a model
+/// has one (unless the price names its own threshold).
 const LONG_CONTEXT: u64 = 200_000;
+
+/// What a speed tier charges, where a model lists prices for it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Rates {
+    pub input: f64,
+    pub output: f64,
+    pub cache_read: f64,
+    pub cache_write: f64,
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -44,11 +55,40 @@ pub struct Price {
     /// Multiplier applied to fast-mode responses (Claude).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fast_multiplier: Option<f64>,
+    /// Where the long-context tier starts, if not at 200K tokens. (The
+    /// `*_above_200k` fields then hold that tier's prices.)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub long_context_tokens: Option<u64>,
+    /// Prices of the fast ("priority") and ultrafast tiers (Codex), below
+    /// and above the long-context threshold.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fast: Option<Rates>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fast_long: Option<Rates>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ultrafast: Option<Rates>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ultrafast_long: Option<Rates>,
 }
 
 impl Price {
-    pub fn cost(&self, t: &Tokens, fast: bool) -> f64 {
-        let long = t.prompt() > LONG_CONTEXT;
+    pub fn cost(&self, t: &Tokens, speed: Speed) -> f64 {
+        let long = t.prompt() > self.long_context_tokens.unwrap_or(LONG_CONTEXT);
+        // A tier a model lists prices for is charged at those prices; one
+        // without its own long-context prices keeps its normal ones.
+        let tier = match speed {
+            Speed::Standard => None,
+            Speed::Fast if self.fast_multiplier.is_some() => None,
+            Speed::Fast => self.fast_long.filter(|_| long).or(self.fast),
+            Speed::Ultrafast => self.ultrafast_long.filter(|_| long).or(self.ultrafast),
+        };
+        if let Some(r) = tier {
+            return (t.input as f64 * r.input
+                + t.output as f64 * r.output
+                + t.cache_read as f64 * r.cache_read
+                + t.cache_writes() as f64 * r.cache_write)
+                / 1e6;
+        }
         let input = if long { self.input_above_200k.unwrap_or(self.input) } else { self.input };
         let output = if long { self.output_above_200k.unwrap_or(self.output) } else { self.output };
         let base_cr = self.cache_read.unwrap_or(self.input * 0.1);
@@ -61,7 +101,7 @@ impl Price {
             + t.cache_write as f64 * cw
             + t.cache_write_1h as f64 * cw1h)
             / 1e6;
-        if fast {
+        if speed == Speed::Fast {
             usd * self.fast_multiplier.unwrap_or(1.0)
         } else {
             usd
@@ -165,7 +205,7 @@ impl Pricer {
         let table = &self.table;
         let price = *self.memo.entry(e.model.clone()).or_insert_with(|| table.lookup(&e.model).map(|(_, p)| *p));
         e.priced = price.is_some();
-        e.cost = price.map(|p| p.cost(&e.tokens, e.fast)).unwrap_or(0.0);
+        e.cost = price.map(|p| p.cost(&e.tokens, e.speed)).unwrap_or(0.0);
     }
 }
 
@@ -271,10 +311,20 @@ mod tests {
             cache_write_1h: 1_000_000,
             reasoning: 0,
         };
-        assert!((p.cost(&t, false) - (3.0 + 15.0 + 0.3 + 3.75 + 6.0)).abs() < 1e-9);
+        assert!((p.cost(&t, Speed::Standard) - (3.0 + 15.0 + 0.3 + 3.75 + 6.0)).abs() < 1e-9);
         let fast = Price { fast_multiplier: Some(2.0), ..p };
-        assert!((fast.cost(&t, true) - 2.0 * p.cost(&t, false)).abs() < 1e-9);
-        assert!((p.cost(&t, true) - p.cost(&t, false)).abs() < 1e-9);
+        assert!((fast.cost(&t, Speed::Fast) - 2.0 * p.cost(&t, Speed::Standard)).abs() < 1e-9);
+        // A model that lists a fast tier is charged that tier's prices, with
+        // its own long-context prices where it has them.
+        let fast = Rates { input: 20.0, output: 80.0, cache_read: 2.0, cache_write: 25.0 };
+        let fast_long = Rates { input: 40.0, ..fast };
+        let tiered = Price { fast: Some(fast), fast_long: Some(fast_long), long_context_tokens: Some(272_000), ..p };
+        let small = Tokens { input: 1_000_000, ..Default::default() };
+        assert_eq!(tiered.cost(&small, Speed::Fast), 40.0, "over 272K: the long fast tier");
+        let under = Tokens { input: 250_000, ..Default::default() };
+        assert_eq!(tiered.cost(&under, Speed::Fast), 5.0, "250K is under this model's threshold");
+        assert_eq!(tiered.cost(&under, Speed::Ultrafast), tiered.cost(&under, Speed::Standard), "no such tier listed");
+        assert!((p.cost(&t, Speed::Fast) - p.cost(&t, Speed::Standard)).abs() < 1e-9);
     }
 
     #[test]
@@ -288,7 +338,7 @@ mod tests {
         };
         let short = Tokens { input: 100_000, output: 1_000, ..Default::default() };
         let long = Tokens { input: 300_000, output: 1_000, ..Default::default() };
-        assert!((p.cost(&short, false) - (0.125 + 0.01)).abs() < 1e-9);
-        assert!((p.cost(&long, false) - (0.75 + 0.015)).abs() < 1e-9);
+        assert!((p.cost(&short, Speed::Standard) - (0.125 + 0.01)).abs() < 1e-9);
+        assert!((p.cost(&long, Speed::Standard) - (0.75 + 0.015)).abs() < 1e-9);
     }
 }

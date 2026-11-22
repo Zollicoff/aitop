@@ -50,7 +50,7 @@ pub(super) fn draw_table(f: &mut Frame, area: Rect, app: &mut App, tool: Tool, s
     let columns = Column::fitting(rows_area.width);
     let host = app.snap.host.clone();
     let ctx = CellCtx { ts, view, tool, now: summary.now, host: &host };
-    let header = TRow::new(columns.iter().map(|c| c.header(view))).style(Style::new().fg(theme::dim()).bold());
+    let header = TRow::new(columns.iter().map(|c| c.header(view, tool))).style(Style::new().fg(theme::dim()).bold());
     let body = rows.iter().map(|r| TRow::new(columns.iter().map(|c| c.cell(r, &ctx))));
     let highlight =
         if app.focus == tool { Style::new().bg(theme::select_bg()).add_modifier(Modifier::BOLD) } else { Style::new() };
@@ -75,8 +75,8 @@ fn draw_tabs(f: &mut Frame, area: Rect, app: &mut App, tool: Tool) {
     let current = app.panels[tool.index()].view;
     let mut spans = Vec::new();
     let mut x = area.x;
-    for &v in app.views() {
-        let label = format!(" {} ", v.label());
+    for v in app.views(tool) {
+        let label = format!(" {} ", v.label(tool));
         let w = label.chars().count() as u16;
         app.hits.push((Rect::new(x, area.y, w, 1), Hit::Tab(tool, v)));
         x += w + 1;
@@ -120,6 +120,8 @@ fn draw_scrollbar(f: &mut Frame, area: Rect, max_offset: usize, offset: usize) {
 /// Two lines describing the selected row (zoom mode).
 fn draw_detail(f: &mut Frame, area: Rect, r: &Row, view: View, now: i64) {
     let first = match view {
+        // A row of totals from T3 Code has no folder, only where it came from.
+        View::Projects if r.detail.starts_with("t3") => vec![dim(" totals from T3 Code · "), val(r.name.clone())],
         View::Projects => vec![dim(" path "), val(tilde(Path::new(&r.detail)))],
         View::Models => vec![dim(" model "), val(r.name.clone())],
         View::Sessions => {
@@ -199,10 +201,11 @@ impl Column {
         }
     }
 
-    fn header(self, view: View) -> Cell<'static> {
+    fn header(self, view: View, tool: Tool) -> Cell<'static> {
         let right = |s: &'static str| Cell::from(Line::from(s).right_aligned());
         match self {
             Column::Name => Cell::from(match view {
+                View::Projects if !tool.has_reader() => "Agent",
                 View::Projects => "Project",
                 View::Models => "Model",
                 View::Sessions => "Session",

@@ -164,12 +164,14 @@ impl Values {
             let name = match t {
                 Tool::Claude => "Claude",
                 Tool::Codex => "Codex",
+                Tool::Other => "Other",
             };
             (
                 name.to_string(),
                 Some(match t {
                     Tool::Claude => theme::current().claude,
                     Tool::Codex => theme::current().codex,
+                    Tool::Other => theme::current().bright,
                 }),
             )
         };

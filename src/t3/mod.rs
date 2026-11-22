@@ -9,7 +9,10 @@
 //!   would not otherwise find);
 //! * **the usage of the machines linked to it** (T3's Linked environments),
 //!   as a total per tool, model and day. T3 does not share projects or
-//!   sessions, so those machines show less detail than this one.
+//!   sessions, so those machines show less detail than this one;
+//! * **the usage of agents aitop has no reader for** (Grok, Cursor, Pi, …),
+//!   on this machine and the linked ones, as the same kind of totals. They
+//!   share one panel, [`Tool::Other`].
 //!
 //! How it gets in: aitop runs T3's own `t3 auth session issue` to give
 //! itself a read-only session on the local server, kept in
@@ -53,6 +56,9 @@ const USAGE_CALL: Duration = Duration::from_secs(180);
 const HISTORY_DAYS: u64 = 90;
 /// Days re-read before the newest total held, which may still have been growing.
 const OVERLAP_DAYS: u64 = 2;
+/// How much of a machine's history has been read: bumped when a read learns
+/// to keep more (costs, then other agents), so the history is read again.
+const LEVEL: u8 = 2;
 const TOO_OLD_HERE: &str =
     "the T3 Code on this machine is too old to share linked machines' usage; update T3 Code here";
 
@@ -194,10 +200,10 @@ struct Peer {
     /// The address the session was made at.
     url: String,
     session: Session,
-    /// Its history has been read in full, costs included; later reads only
-    /// go back a couple of days.
+    /// Its history has been read in full at this [`LEVEL`]; later reads
+    /// only go back a couple of days.
     #[serde(default)]
-    full: bool,
+    level: u8,
 }
 
 /// What aitop remembers between runs, in `<data dir>/t3.json` (it holds
@@ -212,6 +218,10 @@ struct State {
     peers: BTreeMap<String, Peer>,
     /// Transcript folders T3 reported for this machine, by tool key.
     roots: BTreeMap<String, Vec<PathBuf>>,
+    /// This machine's other agents: the [`LEVEL`] their history was read
+    /// at, and the day of the last read.
+    local_level: u8,
+    local_day: Option<String>,
 }
 
 pub fn state_path() -> PathBuf {
@@ -321,6 +331,8 @@ pub struct Outcome {
     pub roots: Vec<(Tool, PathBuf)>,
     /// What T3 calls this machine.
     pub local_hosts: Vec<String>,
+    /// This machine's usage of agents aitop has no reader for, if it has any.
+    pub local: Option<Result<Vec<DayTotal>, String>>,
     pub machines: Vec<Machine>,
 }
 
@@ -394,8 +406,9 @@ impl Client {
             json!({ "sinceDay": day(today), "untilDay": day(today), "timeZone": self.zone.name, "provisional": true });
         let summary = local.call("server.getUsageSummary", window, USAGE_CALL).map_err(|e| e.to_string())?;
         let here = usage::parse(&summary);
-        out.roots = here.sources.iter().filter(|s| s.present).map(|s| (s.tool, s.dir.clone())).collect();
-        out.local_hosts = here.sources.iter().map(|s| s.host.clone()).collect();
+        let read_here = || here.sources.iter().filter(|s| s.tool.has_reader());
+        out.roots = read_here().filter(|s| s.present).map(|s| (s.tool, s.dir.clone())).collect();
+        out.local_hosts = read_here().map(|s| s.host.clone()).collect();
         out.local_hosts.sort();
         out.local_hosts.dedup();
         self.state.roots = Tool::ALL
@@ -404,6 +417,11 @@ impl Client {
                 (t.key().to_string(), out.roots.iter().filter(|(rt, _)| *rt == t).map(|(_, p)| p.clone()).collect())
             })
             .collect();
+
+        // Agents aitop cannot read itself are taken from T3's totals.
+        if here.sources.iter().any(|s| !s.tool.has_reader() && s.present) {
+            out.local = Some(self.other_agents(&mut local));
+        }
 
         // Linked environments is a T3 setting; when it is off there are simply none.
         let links = match local.call("peerLinks.list", json!({}), CALL) {
@@ -434,6 +452,34 @@ impl Client {
         Ok(())
     }
 
+    /// This machine's totals for the agents aitop has no reader for, since the last read.
+    fn other_agents(&mut self, local: &mut Rpc) -> Result<Vec<DayTotal>, String> {
+        let today = self.zone.today();
+        let last_read = self
+            .state
+            .local_day
+            .as_deref()
+            .filter(|_| self.state.local_level >= LEVEL)
+            .and_then(|d| NaiveDate::parse_from_str(d, "%Y-%m-%d").ok());
+        let since = match last_read {
+            Some(d) => d.min(today) - Days::new(OVERLAP_DAYS),
+            None => today - Days::new(HISTORY_DAYS),
+        };
+        let window = json!({
+            "sinceDay": day(since), "untilDay": day(today),
+            "timeZone": self.zone.name, "resolution": "day", "awaitRefresh": true
+        });
+        let summary = local.call("server.getUsageSummary", window, USAGE_CALL).map_err(|e| e.to_string())?;
+        self.state.local_level = LEVEL;
+        self.state.local_day = Some(day(today));
+        Ok(usage::parse(&summary)
+            .totals
+            .into_iter()
+            .filter(|t| !t.tool.has_reader())
+            .filter_map(|total| Some(DayTotal { ts: self.zone.day_start(&total.day)?, total }))
+            .collect())
+    }
+
     /// The totals of one linked machine since the newest day held.
     fn machine(
         &mut self,
@@ -443,7 +489,8 @@ impl Client {
         pairing: &mut Option<(Rpc, Session)>,
     ) -> Result<Vec<DayTotal>, String> {
         let today = self.zone.today();
-        let caught_up = self.state.peers.get(id).is_some_and(|p| p.full);
+        let level = self.state.peers.get(id).map_or(0, |p| p.level);
+        let caught_up = level >= LEVEL;
         let since = match self.newest.get(name).filter(|_| caught_up) {
             Some(&ms) => {
                 Local.timestamp_millis_opt(ms).single().map_or(today, |t| t.date_naive()) - Days::new(OVERLAP_DAYS)
@@ -460,7 +507,7 @@ impl Client {
         for fresh in [false, true] {
             if fresh || !self.state.peers.get(id).is_some_and(|p| p.session.usable(now)) {
                 let mut peer = self.pair(id, name, pairing)?;
-                peer.full = caught_up;
+                peer.level = level;
                 self.state.peers.insert(id.to_string(), peer);
             }
             let peer = self.state.peers.get(id).expect("set above").clone();
@@ -491,7 +538,7 @@ impl Client {
             return match rpc.call("server.getUsageSummary", window.clone(), USAGE_CALL) {
                 Ok(summary) => {
                     if let Some(peer) = self.state.peers.get_mut(id) {
-                        peer.full = true;
+                        peer.level = LEVEL;
                     }
                     Ok(self.totals(name, &summary))
                 }
@@ -547,7 +594,7 @@ impl Client {
         let mut last = "T3 Code gave no address for it".to_string();
         for url in urls {
             match redeem(url, credential) {
-                Ok(session) => return Ok(Peer { label: name.to_string(), url: url.to_string(), session, full: false }),
+                Ok(session) => return Ok(Peer { label: name.to_string(), url: url.to_string(), session, level: 0 }),
                 Err(e) => last = e,
             }
         }
@@ -599,32 +646,53 @@ pub fn read_on(e: &Event) -> Option<&str> {
     e.rollup.and(e.session.strip_prefix("t3:"))
 }
 
-/// A linked machine's totals as usage records filed under `name`.
+/// A linked machine's totals as usage records filed under its name.
+pub fn events(machine: &Machine, totals: &[DayTotal], interner: &mut Interner, costs: bool) -> Vec<Event> {
+    records(&machine.name, &machine.id, totals, interner, costs)
+}
+
+/// This machine's other-agent totals as usage records filed under `host`.
+pub fn local_events(host: &str, totals: &[DayTotal], interner: &mut Interner, costs: bool) -> Vec<Event> {
+    records(host, "local", totals, interner, costs)
+}
+
+/// Totals as usage records for the machine called `name`.
 ///
-/// Each is one record per tool, model and day, marked as a [`Rollup`]. Its
+/// Each is one record per agent, model and day, marked as a [`Rollup`]. Its
 /// id is stable, so a day that is read again replaces what was held. With
 /// `costs`, a record keeps the cost T3 reported; otherwise (and where T3 had
 /// no price at all) it is priced here from its token totals.
-pub fn events(machine: &Machine, totals: &[DayTotal], interner: &mut Interner, costs: bool) -> Vec<Event> {
-    let host = interner.get(&machine.name);
-    let project = interner.get(&format!("{} · via T3 Code", machine.name));
-    let project_path = interner.get(&format!("t3://{}", machine.name));
+///
+/// Claude Code and Codex totals appear as one project row, "name · via T3
+/// Code". The other agents share a panel, so there the row is the agent.
+fn records(name: &str, scope: &str, totals: &[DayTotal], interner: &mut Interner, costs: bool) -> Vec<Event> {
+    let host = interner.get(name);
+    let via = (interner.get(&format!("{name} · via T3 Code")), interner.get(&format!("t3://{name}")));
     totals
         .iter()
         .map(|d| {
             let t = &d.total;
             let read_on = normalize(&t.host);
+            let (id, (project, project_path)) = if t.tool.has_reader() {
+                (format!("t3:{scope}:{read_on}:{}:{}:{}", t.tool.key(), t.model, t.day), via.clone())
+            } else {
+                // Not tied to the link it came over: the same usage reached
+                // two ways is one record.
+                let agent =
+                    (interner.get(usage::agent_name(&t.agent)), interner.get(&format!("t3-agent://{}", t.agent)));
+                (format!("t3:other:{read_on}:{}:{}:{}", t.agent, t.model, t.day), agent)
+            };
             Event {
                 tool: t.tool,
                 host: host.clone(),
-                id: interner.get(&format!("t3:{}:{read_on}:{}:{}:{}", machine.id, t.tool.key(), t.model, t.day)),
+                id: interner.get(&id),
                 ts: d.ts,
                 session: interner.get(&format!("t3:{read_on}")),
-                project: project.clone(),
-                project_path: project_path.clone(),
+                project,
+                project_path,
                 model: interner.get(&t.model),
                 tokens: t.tokens,
-                fast: false,
+                speed: crate::event::Speed::Standard,
                 cost: 0.0,
                 priced: false,
                 rollup: Some(Rollup {
@@ -667,7 +735,7 @@ mod tests {
         let session = Session { id: "s1".into(), token: "tok".into(), expires: 5_000_000 };
         let mut state =
             State { origin: "http://127.0.0.1:3773".into(), local: Some(session.clone()), ..State::default() };
-        let peer = Peer { label: "laptop".into(), url: "https://laptop".into(), session, full: true };
+        let peer = Peer { label: "laptop".into(), url: "https://laptop".into(), session, level: LEVEL };
         state.peers.insert("env".into(), peer);
         state.roots.insert("claude".into(), vec!["/home/z/.claude-alt/projects".into()]);
         state.save(&path).unwrap();
@@ -705,7 +773,13 @@ mod tests {
         let mut i = Interner::default();
         totals[1].total.unpriced = totals[1].total.responses;
         let events = events(&machine, &totals, &mut i, true);
-        assert_eq!(events.len(), 2);
+        assert_eq!(events.len(), 3);
+        // Grok has no panel of its own: it is a row, named for the agent, in the shared one.
+        let grok = &events[2];
+        assert_eq!((grok.tool, &*grok.project, &*grok.project_path), (Tool::Other, "Grok Build", "t3-agent://grok"));
+        assert_eq!(&*grok.id, "t3:other:studio-pc:grok:grok-build:2026-11-15");
+        let here = local_events("desk", &totals[2..], &mut i, true);
+        assert_eq!((&*here[0].host, &here[0].id), ("desk", &grok.id), "the same usage however it was reached");
         let e = &events[0];
         assert_eq!(&*e.id, "t3:env-1:studio-pc:claude:claude-haiku-5-5:2026-11-14");
         assert_eq!(
