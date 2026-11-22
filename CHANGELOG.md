@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Prices come from T3 Code when it is installed: aitop uses the price
+  list T3 keeps on this machine (so new models are priced without
+  `aitop pricing update`, and costs match T3's Usage page), and keeps the
+  cost T3 reports for linked machines instead of re-pricing their daily
+  totals. `[pricing]` overrides still win; `[t3] prices = false` turns
+  this off. The first read after upgrading fetches each linked machine's
+  history again to pick up its costs.
+
+### Fixed
+
+- A model missing from the price table could silently take the price of
+  an older model with a similar name (for example `claude-fable-5-2`
+  priced as `claude-fable-5`). With T3 Code's list it gets its own price.
+
 ## [2.2.0] - 2026-11-21
 
 ### Added

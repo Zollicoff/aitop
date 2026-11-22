@@ -1,8 +1,9 @@
 //! Model price table and cost calculation.
 //!
-//! Prices are USD per million tokens. Three layers are merged, later ones
+//! Prices are USD per million tokens. Four layers are merged, later ones
 //! winning: the table compiled into the binary (`prices.json`), a table
-//! downloaded with `aitop pricing update`, and `[pricing]` overrides from the
+//! downloaded with `aitop pricing update`, the price list T3 Code keeps on
+//! this machine (when it is installed), and `[pricing]` overrides from the
 //! config file.
 
 mod litellm;
@@ -87,12 +88,20 @@ impl PriceTable {
         PriceTable { sources: vec![format!("built-in ({})", f.as_of)], models: f.models.into_iter().collect() }
     }
 
-    /// Built-in table, plus the downloaded table if present, plus overrides.
-    pub fn load(overrides: &BTreeMap<String, Price>) -> PriceTable {
+    /// Built-in table, plus the downloaded table if present, plus T3 Code's
+    /// price list when `t3` is set and it has one, plus overrides.
+    pub fn load(overrides: &BTreeMap<String, Price>, t3: bool) -> PriceTable {
         let mut t = PriceTable::builtin();
         if let Ok(text) = std::fs::read_to_string(cache_path()) {
             if let Ok(f) = serde_json::from_str::<PriceFile>(&text) {
                 t.sources.push(format!("downloaded {} ({} models)", f.as_of, f.models.len()));
+                t.models.extend(f.models);
+            }
+        }
+        if t3 {
+            let converted = crate::paths::cache_dir().join("pricing-t3.json");
+            if let Some(f) = litellm::from_t3(&crate::t3::rates_path(), &converted) {
+                t.sources.push(format!("T3 Code's price list {} ({} models)", f.as_of, f.models.len()));
                 t.models.extend(f.models);
             }
         }
@@ -147,6 +156,12 @@ impl Pricer {
 
     /// Fill in `cost` and `priced`.
     pub fn apply(&mut self, e: &mut Event) {
+        // A total that came with its cost keeps it.
+        if let Some((cost, unpriced)) = e.rollup.and_then(|r| Some((r.cost?, r.unpriced))) {
+            e.cost = cost;
+            e.priced = !unpriced;
+            return;
+        }
         let table = &self.table;
         let price = *self.memo.entry(e.model.clone()).or_insert_with(|| table.lookup(&e.model).map(|(_, p)| *p));
         e.priced = price.is_some();

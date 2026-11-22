@@ -117,11 +117,16 @@ pub struct Event {
 }
 
 /// What a summarised [`Event`] stands for.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Rollup {
     pub responses: u32,
     /// Sessions that took part; their ids are not known.
     pub sessions: u32,
+    /// The cost as the reporting program worked it out, response by
+    /// response. `None`: price the totals here instead.
+    pub cost: Option<f64>,
+    /// Some of the responses had no price there, so `cost` leaves them out.
+    pub unpriced: bool,
 }
 
 impl Event {

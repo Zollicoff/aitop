@@ -195,6 +195,8 @@ clock_format = "%H:%M:%S"
 # [t3]
 # enabled = true
 # every = 300              # seconds between reads
+# prices = true            # use T3's price list here, and the cost it reports
+#                          # for linked machines ([pricing] below still wins)
 
 # Usage from your other machines. Each one listed here is asked for its
 # usage over ssh (it needs aitop 2.2 or newer, and ssh access without a

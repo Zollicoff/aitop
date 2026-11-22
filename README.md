@@ -111,6 +111,8 @@ cost = input × input_price + output × output_price
 - Prompts over 200K tokens use long-context prices where the model has them; Claude fast mode applies its premium.
 - Models without a known price are flagged (`?` / `*` in tables, a warning in the footer). Add them under `[pricing]` in the config, or run `aitop pricing update`.
 
+Prices come from, later ones winning: the table built into aitop, one downloaded with `aitop pricing update`, the price list [T3 Code](#t3-code) keeps on this machine if it is installed, and `[pricing]` in the config. `aitop pricing` shows which price each model in your logs got, and `aitop doctor` which lists are in use.
+
 ## T3 Code
 
 [T3 Code](https://github.com/pingdotgg/t3code) runs Claude Code and Codex for you, often with config folders of its own, and can link your machines together. When it is installed and running, aitop uses it with nothing to set up:
@@ -118,13 +120,15 @@ cost = input × input_price + output × output_price
 - **Its transcript folders.** aitop asks T3 which folders it keeps Claude Code and Codex transcripts in on this machine and reads those as well, so usage from T3's own config folders is counted without listing them under `[paths]`. (Folders you do set under `[paths]` are used as they are.)
 - **Its linked machines.** Every machine linked in T3 (Settings → Environments → Linked environments) shows up under **Machines**, with its usage per tool, model and day.
 
-What a linked machine shows is what T3 shares: totals, not individual responses. So it has cost, tokens, models and the daily chart, but no projects or sessions (it appears as one row, "*name* · via T3 Code"), and it is left out of the activity feed, the "active" count and the 5-hour window. Its cost is worked out here from the daily token totals, which is slightly less exact than pricing each response. For full detail from another machine, read it over ssh instead (next section); a machine read both ways is only counted once.
+What a linked machine shows is what T3 shares: totals, not individual responses. So it has cost, tokens, models and the daily chart, but no projects or sessions (it appears as one row, "*name* · via T3 Code"), and it is left out of the activity feed, the "active" count and the 5-hour window. Its cost is the one T3 reports, worked out on that machine response by response. For full detail from another machine, read it over ssh instead (next section); a machine read both ways is only counted once.
 
 How aitop gets access, so you know what it does:
 
 - On this machine it runs T3's own `t3 auth session issue` to give itself a session that can only read usage and the list of links. The token is kept in `~/.local/share/aitop/t3.json`, readable only by you.
 - For a linked machine it asks the local T3 server to pair it. That needs a session allowed to manage access, which aitop creates for five minutes and revokes as soon as the pairing is done. The session it ends up with on the linked machine can only read usage.
 - Every session is listed in T3 under **Settings → Sharing & access** as `aitop`, where you can revoke it. `[t3] enabled = false` in the config makes aitop leave T3 alone entirely.
+
+**Prices.** T3 keeps a current price list on each machine (LiteLLM's, which it refreshes by itself). aitop uses that list for this machine's usage, so new models are priced without running `aitop pricing update` and costs line up with T3's own Usage page; `[pricing]` in the config still wins. For linked machines aitop keeps the cost T3 reports. `[t3] prices = false` goes back to aitop's own prices for both.
 
 Requirements for linked machines: a T3 Code from 21 November 2026 or later on both machines, T3's **Linked environments** turned on, a full-access link, and T3 running on each. A machine that is asleep keeps showing what it last reported; help (`?`) and `aitop sync` say why one could not be read.
 

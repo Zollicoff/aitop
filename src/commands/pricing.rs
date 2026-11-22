@@ -20,7 +20,7 @@ pub fn update(output: Option<&Path>) -> Result<()> {
 
 /// Print the price used for one model id.
 pub fn show(ctx: &Context, model: &str) -> Result<()> {
-    let table = PriceTable::load(&ctx.cfg.pricing);
+    let table = PriceTable::load(&ctx.cfg.pricing, ctx.cfg.t3.use_prices());
     let Some((key, p)) = table.lookup(model) else {
         bail!("no price known for {model:?}; add one under [pricing] in the config");
     };

@@ -306,7 +306,7 @@ mod tests {
         let mut i = Interner::default();
         let mut total = ev(&mut i, Tool::Claude, n - 1000, "t3://laptop", "t3:laptop", 9.0);
         total.host = i.get("laptop");
-        total.rollup = Some(Rollup { responses: 40, sessions: 3 });
+        total.rollup = Some(Rollup { responses: 40, sessions: 3, cost: None, unpriced: false });
         let events = [ev(&mut i, Tool::Claude, n - 2000, "/a/web", "s1", 1.0), total];
         let s = summarize(&events, Range::All, Sort::Cost, now, 5 * 60_000, &[]);
         let c = s.tool(Tool::Claude);

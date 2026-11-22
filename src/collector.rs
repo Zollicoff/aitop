@@ -99,7 +99,7 @@ pub struct Collector {
     interner: Interner,
     projects: ProjectResolver,
     pricer: Pricer,
-    /// id -> output tokens of the copy we kept.
+    /// id -> [`version`] of the copy we kept.
     seen: HashMap<Arc<str>, u64>,
     store: Option<Store>,
     /// Load the history but never write to it.
@@ -119,6 +119,8 @@ pub struct Collector {
     t3_read: (Sender<t3::Outcome>, Receiver<t3::Outcome>),
     /// Tools whose folders the config leaves open, so T3's may be added.
     t3_roots_for: Vec<Tool>,
+    /// Keep the cost T3 reports for a linked machine rather than pricing it here.
+    t3_costs: bool,
     /// Machines (by normalised name) whose usage is held response by
     /// response. A daily total for one of them would count it twice.
     covered: HashSet<String>,
@@ -130,7 +132,7 @@ pub struct Collector {
 impl Collector {
     pub fn new(cfg: &Config, history: Option<PathBuf>) -> Collector {
         let sources = sources::all(cfg);
-        let pricer = Pricer::new(PriceTable::load(&cfg.pricing));
+        let pricer = Pricer::new(PriceTable::load(&cfg.pricing, cfg.t3.use_prices()));
         let mut interner = Interner::default();
         let host = interner.get(&cfg.host_name());
         // The config was checked when it was loaded; one that was not gets no remotes.
@@ -191,6 +193,7 @@ impl Collector {
             t3_wake: None,
             t3_read: mpsc::channel(),
             t3_roots_for: Vec::new(),
+            t3_costs: cfg.t3.use_prices(),
             covered,
             covered_path,
             data: Arc::new(RwLock::new(data)),
@@ -287,7 +290,7 @@ impl Collector {
                     // Everything it reported was read on machines held in detail.
                     covered |=
                         !totals.is_empty() && totals.iter().all(|t| self.covered.contains(&normalize(&t.total.host)));
-                    let events = t3::events(&machine, totals, &mut self.interner);
+                    let events = t3::events(&machine, totals, &mut self.interner, self.t3_costs);
                     self.merge(events, true);
                     (None, Some(now))
                 }
@@ -490,13 +493,16 @@ impl Collector {
         // replaces the earlier one without a scan.
         let mut in_batch: HashMap<Arc<str>, usize> = HashMap::new();
         for mut e in incoming {
+            let version = version(&e);
             let known = match self.seen.get(&e.id) {
-                Some(&out) if e.tokens.output <= out => continue,
+                // A response is only replaced by a fuller copy of it; a total
+                // by any different reading (the latest is what holds).
+                Some(&held) if held == version || (e.rollup.is_none() && version <= held) => continue,
                 Some(_) => true,
                 None => false,
             };
             self.pricer.apply(&mut e);
-            self.seen.insert(e.id.clone(), e.tokens.output);
+            self.seen.insert(e.id.clone(), version);
             if let Some(&i) = in_batch.get(&e.id) {
                 added[i] = e;
             } else if known {
@@ -519,6 +525,18 @@ impl Collector {
             self.data.write().unwrap().history_error = Some(err.to_string());
         }
     }
+}
+
+/// What tells one copy of a record from another with the same id: for a
+/// response, how much output it has so far; for a total, everything in it.
+fn version(e: &Event) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let Some(r) = e.rollup else { return e.tokens.output };
+    let t = e.tokens;
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    (t.input, t.output, t.cache_read, t.cache_write, t.cache_write_1h, r.responses, r.sessions).hash(&mut h);
+    (r.cost.map(f64::to_bits), r.unpriced).hash(&mut h);
+    h.finish()
 }
 
 impl Dataset {
@@ -696,6 +714,8 @@ mod tests {
             tokens,
             responses: 12,
             sessions: 2,
+            cost: 4.5,
+            unpriced: 0,
         };
         t3::DayTotal { total, ts }
     }
@@ -739,6 +759,7 @@ mod tests {
             assert_eq!(shown, [("laptop", false, 0, false), ("Studio", true, 2, false), ("Server", true, 0, true)]);
             assert_eq!(d.events.len(), 2, "only Studio's totals are kept");
             assert!(d.events.iter().all(|e| &*e.host == "Studio" && e.priced && e.responses() == 12));
+            assert!(d.events.iter().all(|e| e.cost == 4.5), "the cost T3 reported is kept");
             assert_eq!(d.t3, Some(T3Status { version: "0.1.12".into(), read: true, error: None }));
             // T3's Claude folder is read from now on; Codex's is fixed by the config.
             assert!(d.status[Tool::Claude.index()].roots.iter().any(|(p, _)| *p == extra));
@@ -747,11 +768,20 @@ mod tests {
         // A day that is read again replaces what was held, and history keeps the totals.
         c.merge_t3(read(vec![machine("e1", "Studio", Ok(vec![day_total("studio.local", "2026-11-15", 2000, 70)]))]));
         assert_eq!(c.data.read().unwrap().events.iter().map(|e| e.tokens.output).collect::<Vec<_>>(), [5, 70]);
+        // Also when the new reading is lower, or only its cost changed.
+        let mut repriced = day_total("studio.local", "2026-11-15", 2000, 60);
+        repriced.total.cost = 9.0;
+        c.merge_t3(read(vec![machine("e1", "Studio", Ok(vec![repriced.clone()]))]));
+        c.merge_t3(read(vec![machine("e1", "Studio", Ok(vec![repriced]))]));
+        {
+            let d = c.data.read().unwrap();
+            assert_eq!(d.events.iter().map(|e| (e.tokens.output, e.cost)).collect::<Vec<_>>(), [(5, 4.5), (60, 9.0)]);
+        }
         let mut c2 = Collector::new(&cfg, Some(hist.clone()));
         c2.load_history();
         assert_eq!(
-            c2.data.read().unwrap().events.iter().map(|e| (e.tokens.output, e.responses())).collect::<Vec<_>>(),
-            [(5, 12), (70, 12)]
+            c2.data.read().unwrap().events.iter().map(|e| (e.tokens.output, e.cost)).collect::<Vec<_>>(),
+            [(5, 4.5), (60, 9.0)]
         );
 
         // Once Studio is also read over ssh, its daily totals step aside, now and on later runs.

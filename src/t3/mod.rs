@@ -64,15 +64,22 @@ pub struct T3Config {
     pub enabled: bool,
     /// Seconds between reads.
     pub every: f64,
+    /// Use T3 Code's prices: its price list for this machine's usage, and
+    /// the cost it reports for linked machines.
+    pub prices: bool,
 }
 
 impl Default for T3Config {
     fn default() -> Self {
-        T3Config { enabled: true, every: 300.0 }
+        T3Config { enabled: true, every: 300.0, prices: true }
     }
 }
 
 impl T3Config {
+    pub fn use_prices(&self) -> bool {
+        self.enabled && self.prices
+    }
+
     pub fn interval(&self) -> Duration {
         Duration::from_secs_f64(self.every.clamp(30.0, 86_400.0))
     }
@@ -93,6 +100,11 @@ fn t3_home() -> PathBuf {
         .filter(|v| !v.is_empty())
         .map(PathBuf::from)
         .unwrap_or_else(|| crate::paths::home().join(".t3"))
+}
+
+/// The price list T3 keeps on this machine (LiteLLM's, refreshed by T3).
+pub fn rates_path() -> PathBuf {
+    t3_home().join("userdata/usage-model-rates.json")
 }
 
 impl Install {
@@ -182,6 +194,10 @@ struct Peer {
     /// The address the session was made at.
     url: String,
     session: Session,
+    /// Its history has been read in full, costs included; later reads only
+    /// go back a couple of days.
+    #[serde(default)]
+    full: bool,
 }
 
 /// What aitop remembers between runs, in `<data dir>/t3.json` (it holds
@@ -427,7 +443,8 @@ impl Client {
         pairing: &mut Option<(Rpc, Session)>,
     ) -> Result<Vec<DayTotal>, String> {
         let today = self.zone.today();
-        let since = match self.newest.get(name) {
+        let caught_up = self.state.peers.get(id).is_some_and(|p| p.full);
+        let since = match self.newest.get(name).filter(|_| caught_up) {
             Some(&ms) => {
                 Local.timestamp_millis_opt(ms).single().map_or(today, |t| t.date_naive()) - Days::new(OVERLAP_DAYS)
             }
@@ -442,7 +459,8 @@ impl Client {
         let now = Local::now().timestamp_millis();
         for fresh in [false, true] {
             if fresh || !self.state.peers.get(id).is_some_and(|p| p.session.usable(now)) {
-                let peer = self.pair(id, name, pairing)?;
+                let mut peer = self.pair(id, name, pairing)?;
+                peer.full = caught_up;
                 self.state.peers.insert(id.to_string(), peer);
             }
             let peer = self.state.peers.get(id).expect("set above").clone();
@@ -471,7 +489,12 @@ impl Client {
                 None => return Err(format!("not reachable ({unreachable})")),
             };
             return match rpc.call("server.getUsageSummary", window.clone(), USAGE_CALL) {
-                Ok(summary) => Ok(self.totals(name, &summary)),
+                Ok(summary) => {
+                    if let Some(peer) = self.state.peers.get_mut(id) {
+                        peer.full = true;
+                    }
+                    Ok(self.totals(name, &summary))
+                }
                 Err(Error::Failed { tag, .. }) if tag == "EnvironmentAuthorizationError" && !fresh => continue,
                 Err(e) => Err(e.to_string()),
             };
@@ -524,7 +547,7 @@ impl Client {
         let mut last = "T3 Code gave no address for it".to_string();
         for url in urls {
             match redeem(url, credential) {
-                Ok(session) => return Ok(Peer { label: name.to_string(), url: url.to_string(), session }),
+                Ok(session) => return Ok(Peer { label: name.to_string(), url: url.to_string(), session, full: false }),
                 Err(e) => last = e,
             }
         }
@@ -579,8 +602,10 @@ pub fn read_on(e: &Event) -> Option<&str> {
 /// A linked machine's totals as usage records filed under `name`.
 ///
 /// Each is one record per tool, model and day, marked as a [`Rollup`]. Its
-/// id is stable, so a day that is read again replaces what was held.
-pub fn events(machine: &Machine, totals: &[DayTotal], interner: &mut Interner) -> Vec<Event> {
+/// id is stable, so a day that is read again replaces what was held. With
+/// `costs`, a record keeps the cost T3 reported; otherwise (and where T3 had
+/// no price at all) it is priced here from its token totals.
+pub fn events(machine: &Machine, totals: &[DayTotal], interner: &mut Interner, costs: bool) -> Vec<Event> {
     let host = interner.get(&machine.name);
     let project = interner.get(&format!("{} · via T3 Code", machine.name));
     let project_path = interner.get(&format!("t3://{}", machine.name));
@@ -602,7 +627,12 @@ pub fn events(machine: &Machine, totals: &[DayTotal], interner: &mut Interner) -
                 fast: false,
                 cost: 0.0,
                 priced: false,
-                rollup: Some(Rollup { responses: t.responses, sessions: t.sessions }),
+                rollup: Some(Rollup {
+                    responses: t.responses,
+                    sessions: t.sessions,
+                    cost: (costs && t.unpriced < t.responses).then_some(t.cost),
+                    unpriced: costs && t.unpriced > 0 && t.unpriced < t.responses,
+                }),
             }
         })
         .collect()
@@ -637,7 +667,8 @@ mod tests {
         let session = Session { id: "s1".into(), token: "tok".into(), expires: 5_000_000 };
         let mut state =
             State { origin: "http://127.0.0.1:3773".into(), local: Some(session.clone()), ..State::default() };
-        state.peers.insert("env".into(), Peer { label: "laptop".into(), url: "https://laptop".into(), session });
+        let peer = Peer { label: "laptop".into(), url: "https://laptop".into(), session, full: true };
+        state.peers.insert("env".into(), peer);
         state.roots.insert("claude".into(), vec!["/home/z/.claude-alt/projects".into()]);
         state.save(&path).unwrap();
         assert_eq!(State::load(&path), state);
@@ -665,14 +696,15 @@ mod tests {
     #[test]
     fn totals_become_records() {
         let zone = Zone { name: "UTC".into(), local: false };
-        let totals: Vec<DayTotal> = usage::parse(&usage::tests::sample("Studio-PC.local"))
+        let mut totals: Vec<DayTotal> = usage::parse(&usage::tests::sample("Studio-PC.local"))
             .totals
             .into_iter()
             .map(|total| DayTotal { ts: zone.day_start(&total.day).unwrap(), total })
             .collect();
         let machine = Machine { id: "env-1".into(), name: "studio-pc".into(), result: Ok(Vec::new()) };
         let mut i = Interner::default();
-        let events = events(&machine, &totals, &mut i);
+        totals[1].total.unpriced = totals[1].total.responses;
+        let events = events(&machine, &totals, &mut i, true);
         assert_eq!(events.len(), 2);
         let e = &events[0];
         assert_eq!(&*e.id, "t3:env-1:studio-pc:claude:claude-haiku-5-5:2026-11-14");
@@ -680,7 +712,10 @@ mod tests {
             (&*e.host, &*e.project, &*e.project_path),
             ("studio-pc", "studio-pc · via T3 Code", "t3://studio-pc")
         );
-        assert_eq!(e.rollup, Some(Rollup { responses: 20, sessions: 4 }));
+        assert_eq!(e.rollup.map(|r| (r.responses, r.sessions, r.unpriced)), Some((20, 4, false)));
+        assert!((e.rollup.unwrap().cost.unwrap() - 0.0444).abs() < 1e-9, "T3's cost is kept");
+        assert_eq!(events[1].rollup.unwrap().cost, None, "T3 had no price: priced here");
+        assert!(super::events(&machine, &totals, &mut i, false).iter().all(|e| e.rollup.unwrap().cost.is_none()));
         assert_eq!((e.responses(), e.ts, e.tokens.input), (20, 1_794_614_400_000, 40));
         assert_eq!(read_on(e), Some("studio-pc"));
         assert_eq!(read_on(&Event { rollup: None, ..e.clone() }), None, "only totals say where they were read");
@@ -691,6 +726,8 @@ mod tests {
         let c = T3Config::default();
         assert!(c.enabled);
         assert_eq!(c.interval(), Duration::from_secs(300));
+        assert!(c.use_prices());
+        assert!(!T3Config { enabled: false, ..c.clone() }.use_prices());
         assert_eq!(T3Config { every: 1.0, ..c }.interval(), Duration::from_secs(30));
     }
 }

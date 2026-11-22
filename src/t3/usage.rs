@@ -37,6 +37,10 @@ pub struct Total {
     pub tokens: Tokens,
     pub responses: u32,
     pub sessions: u32,
+    /// What T3 says it cost, priced response by response on that machine.
+    pub cost: f64,
+    /// How many of the responses T3 had no price for (and left out of `cost`).
+    pub unpriced: u32,
 }
 
 #[derive(Debug, Default, PartialEq)]
@@ -58,6 +62,10 @@ struct Bucket {
     totals: Counts,
     #[serde(default)]
     records: u64,
+    #[serde(default)]
+    cost_usd: f64,
+    #[serde(default)]
+    unpriced_records: u64,
     #[serde(default)]
     sessions: u64,
 }
@@ -138,6 +146,8 @@ pub fn parse(summary: &Value) -> Summary {
             tokens: Tokens::default(),
             responses: 0,
             sessions: 0,
+            cost: 0.0,
+            unpriced: 0,
         });
         t.tokens += Tokens {
             input: b.totals.uncached_input_tokens,
@@ -149,6 +159,8 @@ pub fn parse(summary: &Value) -> Summary {
         };
         t.responses = t.responses.saturating_add(b.records.min(u64::from(u32::MAX)) as u32);
         t.sessions = t.sessions.saturating_add(b.sessions.min(u64::from(u32::MAX)) as u32);
+        t.cost += b.cost_usd;
+        t.unpriced = t.unpriced.saturating_add(b.unpriced_records.min(u64::from(u32::MAX)) as u32);
     }
     Summary { sources, totals: totals.into_values().filter(|t| !t.tokens.is_zero()).collect() }
 }
@@ -220,7 +232,8 @@ pub(crate) mod tests {
                 reasoning: 24
             }
         );
-        assert_eq!((haiku.responses, haiku.sessions), (20, 4));
+        assert_eq!((haiku.responses, haiku.sessions, haiku.unpriced), (20, 4, 0));
+        assert!((haiku.cost - 0.0444).abs() < 1e-9, "the two folders' costs add up: {}", haiku.cost);
         assert_eq!((s.totals[1].tool, s.totals[1].responses), (Tool::Codex, 9));
 
         let dirs: Vec<(&str, bool)> = s.sources.iter().map(|x| (x.dir.to_str().unwrap(), x.present)).collect();

@@ -52,6 +52,54 @@ fn round(x: f64) -> f64 {
     (x * 1e6).round() / 1e6
 }
 
+/// Keep fast-mode multipliers from the built-in table (LiteLLM has none).
+fn keep_fast_multipliers(file: &mut PriceFile) {
+    let Ok(builtin) = serde_json::from_str::<PriceFile>(BUILTIN) else { return };
+    for (k, p) in builtin.models {
+        if let (Some(m), Some(e)) = (p.fast_multiplier, file.models.get_mut(&k)) {
+            e.fast_multiplier = Some(m);
+        }
+    }
+}
+
+/// The price list T3 Code keeps in `rates` (a LiteLLM list it refreshes by
+/// itself), in our format. The list is several megabytes, so the converted
+/// table is kept in `converted` and reused until T3 writes a new list.
+pub fn from_t3(rates: &Path, converted: &Path) -> Option<PriceFile> {
+    #[derive(serde::Deserialize)]
+    struct Rates<'a> {
+        #[serde(rename = "fetchedAtMs", default)]
+        fetched_at_ms: i64,
+        #[serde(borrow)]
+        document: &'a serde_json::value::RawValue,
+    }
+    let meta = std::fs::metadata(rates).ok()?;
+    let written = meta.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_millis();
+    // Names the exact list the converted table was made from.
+    let source = format!("{} ({written}, {} bytes)", rates.display(), meta.len());
+    if let Some(f) = std::fs::read_to_string(converted).ok().and_then(|t| serde_json::from_str::<PriceFile>(&t).ok()) {
+        if f.source == source {
+            return Some(f);
+        }
+    }
+    let text = std::fs::read_to_string(rates).ok()?;
+    let parsed: Rates = serde_json::from_str(&text).ok()?;
+    let as_of = chrono::DateTime::from_timestamp_millis(parsed.fetched_at_ms)
+        .map(|t| t.with_timezone(&chrono::Local).format("%Y-%m-%d").to_string())
+        .unwrap_or_default();
+    let mut file = from_litellm(parsed.document.get(), &as_of).ok()?;
+    keep_fast_multipliers(&mut file);
+    file.source = source;
+    // Best effort: without it the list is converted again next time.
+    if let Some(dir) = converted.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    if let Ok(json) = serde_json::to_string(&file) {
+        let _ = std::fs::write(converted, json);
+    }
+    Some(file)
+}
+
 /// Download fresh prices into the cache file.
 pub fn update(output: Option<&Path>) -> Result<(PathBuf, usize)> {
     let body = ureq::get(LITELLM_URL)
@@ -64,13 +112,7 @@ pub fn update(output: Option<&Path>) -> Result<(PathBuf, usize)> {
         .context("download failed")?;
     let today = chrono::Local::now().format("%Y-%m-%d").to_string();
     let mut file = from_litellm(&body, &today)?;
-    // Keep fast-mode multipliers from the built-in table (LiteLLM has none).
-    let builtin: PriceFile = serde_json::from_str(BUILTIN)?;
-    for (k, p) in builtin.models {
-        if let (Some(m), Some(e)) = (p.fast_multiplier, file.models.get_mut(&k)) {
-            e.fast_multiplier = Some(m);
-        }
-    }
+    keep_fast_multipliers(&mut file);
     let path = output.map(Path::to_path_buf).unwrap_or_else(cache_path);
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
@@ -99,5 +141,30 @@ mod tests {
         assert_eq!(f.models["claude-opus-5-5"].cache_read, Some(0.2));
         assert_eq!(f.models["gpt-5.3-codex"].output, 14.0);
         assert!(!f.models.contains_key("gemini-3-pro-preview"));
+    }
+
+    #[test]
+    fn t3_price_list() {
+        let dir = tempfile::tempdir().unwrap();
+        let (rates, converted) = (dir.path().join("usage-model-rates.json"), dir.path().join("cache/pricing-t3.json"));
+        assert!(from_t3(&rates, &converted).is_none(), "no T3 list, no layer");
+        let list = |output: f64| {
+            format!(
+                r#"{{"fetchedAtMs":1795158054818,"document":{{"gpt-6.2-astra":{{"input_cost_per_token":8e-6,"output_cost_per_token":{output},"mode":"responses"}},"claude-opus-4-6":{{"input_cost_per_token":5e-6,"output_cost_per_token":2.5e-5,"mode":"chat"}}}}}}"#
+            )
+        };
+        std::fs::write(&rates, list(4e-5)).unwrap();
+        let f = from_t3(&rates, &converted).unwrap();
+        assert_eq!((f.models["gpt-6.2-astra"].input, f.models["gpt-6.2-astra"].output), (8.0, 40.0));
+        assert!(f.as_of.starts_with("2026-11-"), "{}", f.as_of);
+        let builtin: PriceFile = serde_json::from_str(BUILTIN).unwrap();
+        assert_eq!(f.models["claude-opus-4-6"].fast_multiplier, builtin.models["claude-opus-4-6"].fast_multiplier);
+        // The converted table is reused until T3 writes a new list.
+        assert!(converted.exists());
+        assert_eq!(from_t3(&rates, &converted).unwrap().source, f.source);
+        std::fs::write(&rates, list(6e-5) + " ").unwrap();
+        assert_eq!(from_t3(&rates, &converted).unwrap().models["gpt-6.2-astra"].output, 60.0);
+        std::fs::write(&rates, "not json at all").unwrap();
+        assert!(from_t3(&rates, &converted).is_none());
     }
 }

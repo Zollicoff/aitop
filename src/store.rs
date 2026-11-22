@@ -58,6 +58,11 @@ struct Record<'a> {
     n: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     ns: Option<u32>,
+    /// A total's cost as reported with it, and whether that leaves some out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    c: Option<f64>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    u: bool,
 }
 
 impl<'a> Record<'a> {
@@ -80,6 +85,8 @@ impl<'a> Record<'a> {
             h: host.map(Cow::Borrowed),
             n: e.rollup.map(|r| r.responses),
             ns: e.rollup.map(|r| r.sessions),
+            c: e.rollup.and_then(|r| r.cost),
+            u: e.rollup.is_some_and(|r| r.unpriced),
         }
     }
 
@@ -107,7 +114,12 @@ impl<'a> Record<'a> {
             fast: self.f,
             cost: 0.0,
             priced: false,
-            rollup: self.n.map(|responses| Rollup { responses, sessions: self.ns.unwrap_or(0) }),
+            rollup: self.n.map(|responses| Rollup {
+                responses,
+                sessions: self.ns.unwrap_or(0),
+                cost: self.c,
+                unpriced: self.u,
+            }),
         }
     }
 }
@@ -229,7 +241,8 @@ mod tests {
         assert_eq!(&*sent.host, "here");
         assert_eq!(sent.tokens, e.tokens);
         // A total keeps what it stands for.
-        let total = Event { rollup: Some(Rollup { responses: 40, sessions: 3 }), ..e.clone() };
+        let rollup = Rollup { responses: 40, sessions: 3, cost: Some(1.25), unpriced: true };
+        let total = Event { rollup: Some(rollup), ..e.clone() };
         let back = decode(&encode(&total), &mut i, &Arc::from("x")).unwrap();
         assert_eq!(back.rollup, total.rollup);
         assert_eq!((back.responses(), e.responses()), (40, 1));
