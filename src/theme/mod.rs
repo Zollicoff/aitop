@@ -179,7 +179,15 @@ pub fn accent(t: Tool) -> Color {
     out(match t {
         Tool::Claude => p.claude,
         Tool::Codex => p.codex,
-        Tool::Other => p.bright,
+        // The agents without a colour of their own in themes take one of
+        // the theme's other colours, so every theme covers them.
+        Tool::Grok => p.bright,
+        Tool::Cursor => p.gradient[0],
+        Tool::OpenCode => p.gradient[1],
+        Tool::Antigravity => p.gradient[2],
+        Tool::Pi => p.good,
+        Tool::Muse => p.warn,
+        Tool::Other => p.text,
     })
 }
 

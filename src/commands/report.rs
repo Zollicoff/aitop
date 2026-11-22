@@ -94,11 +94,13 @@ impl<'a> Report<'a> {
         let sections = Tool::ALL
             .into_iter()
             .filter(|t| args.tool.is_none_or(|o| o == *t))
-            // The shared panel for other agents is left out while it is empty.
-            .filter(|t| t.has_reader() || args.tool == Some(*t) || summary.tool(*t).last_ts.is_some())
+            // An agent known only through T3 Code is left out while it has no usage in the range.
+            .filter(|t| t.has_reader() || args.tool == Some(*t) || summary.tool(*t).messages > 0)
             .map(|t| {
                 let ts = summary.tool(t);
                 let rows = match args.by {
+                    // An agent's totals have no projects; its models say more.
+                    By::Project if !t.has_reader() && t != Tool::Other => ts.models.clone(),
                     By::Project => ts.projects.clone(),
                     By::Model => ts.models.clone(),
                     By::Session => ts.session_rows.clone(),
@@ -197,7 +199,8 @@ impl<'a> Report<'a> {
                 continue;
             }
             let header = match self.by {
-                By::Project if !t.has_reader() => "AGENT".to_string(),
+                By::Project if *t == Tool::Other => "AGENT".to_string(),
+                By::Project if !t.has_reader() => "MODEL".to_string(),
                 by => by.key().to_uppercase(),
             };
             let _ = writeln!(

@@ -29,6 +29,7 @@ pub(super) fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
         ("s", "sort"),
         ("a", "activity"),
         ("t", "theme"),
+        ("v", "layout"),
         ("z", "zoom"),
         ("↑↓", "select"),
     ];

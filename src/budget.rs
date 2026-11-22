@@ -87,7 +87,7 @@ impl BudgetConfig {
             Tool::Claude => self.claude,
             Tool::Codex => self.codex,
             // Covered by the all-tools budgets only.
-            Tool::Other => Limits::default(),
+            _ => Limits::default(),
         }
     }
 

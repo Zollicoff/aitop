@@ -205,7 +205,7 @@ impl Column {
         let right = |s: &'static str| Cell::from(Line::from(s).right_aligned());
         match self {
             Column::Name => Cell::from(match view {
-                View::Projects if !tool.has_reader() => "Agent",
+                View::Projects if tool == Tool::Other => "Agent",
                 View::Projects => "Project",
                 View::Models => "Model",
                 View::Sessions => "Session",

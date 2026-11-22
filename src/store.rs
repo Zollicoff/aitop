@@ -96,7 +96,11 @@ impl<'a> Record<'a> {
 
     fn into_event(self, interner: &mut Interner, default_host: &Arc<str>) -> Event {
         Event {
-            tool: self.t,
+            // 2.3.0 filed every agent it had no reader for under "other".
+            tool: match (self.t, self.pp.strip_prefix("t3-agent://")) {
+                (Tool::Other, Some(agent)) => Tool::from_agent(agent),
+                (tool, _) => tool,
+            },
             host: match &self.h {
                 Some(h) => interner.get(h),
                 None => default_host.clone(),

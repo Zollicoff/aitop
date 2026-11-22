@@ -79,6 +79,19 @@ choice! {
 }
 
 choice! {
+    /// How the agents are arranged on the screen.
+    Layout {
+        /// Stacked for one or two agents, the list for more.
+        #[default]
+        Auto => "auto",
+        /// A list of the agents beside the selected one in full.
+        List => "list",
+        /// One full-width panel per agent, top to bottom.
+        Stacked => "stacked",
+    }
+}
+
+choice! {
     /// What the per-tool chart plots.
     ChartMetric {
         #[default]

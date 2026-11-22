@@ -18,6 +18,7 @@ Inspired by [btop](https://github.com/aristocratos/btop).
 - **Budgets.** Set daily, weekly or monthly spend limits, overall or per tool, and get warned as you approach them.
 - **Live activity feed.** Every response as it lands: tool, project, model, tokens and cost.
 - **Themes and looks.** Eight themes built in (Dracula, Gruvbox, Nord, Catppuccin, Tokyo Night, Solarized Light, your terminal's own colours, and the default) plus your own in TOML; transparent backgrounds; braille, block or TTY graphs; four box styles.
+- **Two layouts, your choice of agents.** A list of agents beside the selected one in full, or stacked panels; turn each agent on or off in Options.
 - **Options menu, like btop.** Esc opens Options · Help · Quit; every setting can be changed live and is saved to your config file, comments and all.
 - **Status line.** `aitop statusline` puts today's spend, the 5-hour window and budgets in tmux, your prompt or Claude Code's status line.
 - **History that outlives the logs.** Claude Code deletes transcripts after 30 days; aitop keeps a compact copy of every usage record in `~/.local/share/aitop/history.jsonl`, so "all time" really means all time.
@@ -66,7 +67,8 @@ aitop config > ~/.config/aitop/config.toml   # start a config file
 | Key | Action |
 | --- | --- |
 | `1` `2` `3` `4` / `[` `]` | range: today · 7 days · 30 days · all time |
-| `tab` / `shift-tab` | focus next / previous panel |
+| `tab` / `shift-tab` | focus next / previous agent |
+| `v` | switch layout: agent list + detail · stacked panels |
 | `↑` `↓` / `j` `k`, `PgUp` `PgDn`, `g` `G` | move the selection |
 | `←` `→` / `h` `l` (or `p` `m` `S`) | projects · models · sessions |
 | `M` | machines, when there is usage from more than one |
@@ -121,7 +123,7 @@ Prices come from, later ones winning: the table built into aitop, one downloaded
 - **Its transcript folders.** aitop asks T3 which folders it keeps Claude Code and Codex transcripts in on this machine and reads those as well, so usage from T3's own config folders is counted without listing them under `[paths]`. (Folders you do set under `[paths]` are used as they are.)
 - **Its linked machines.** Every machine linked in T3 (Settings → Environments → Linked environments) shows up under **Machines**, with its usage per tool, model and day.
 
-- **Its other agents.** aitop reads Claude Code's and Codex's logs itself. Whatever else T3 tracks (Grok Build, Cursor, Pi, OpenCode, Antigravity, Muse Code, and agents it adds later) appears in a third panel, **Other agents**, once there is any usage of them, on this machine or a linked one. Its tabs are Agents, Models and Machines, and its numbers are T3's daily totals and costs.
+- **Its other agents.** aitop reads Claude Code's and Codex's logs itself. Every other agent T3 tracks (Grok Build, Cursor, OpenCode, Antigravity, Pi, Muse Code) gets a panel of its own, under its own name, once there is any usage of it on this machine or a linked one. Its tabs are Models and Machines, and its numbers are T3's daily totals and costs. An agent T3 adds later that this aitop does not know by name appears under "Other agents".
 
 What a linked machine shows is what T3 shares: totals, not individual responses. So it has cost, tokens, models and the daily chart, but no projects or sessions (it appears as one row, "*name* · via T3 Code"), and it is left out of the activity feed, the "active" count and the 5-hour window. Its cost is the one T3 reports, worked out on that machine response by response. For full detail from another machine, read it over ssh instead (next section); a machine read both ways is only counted once.
 
@@ -200,6 +202,11 @@ cache_read = 0.1
 ```
 
 `NO_COLOR` disables colour. With `truecolor = "auto"`, 24-bit colour is used when the terminal advertises it (`COLORTERM`), otherwise the nearest of 256 colours.
+
+### Layout and agents
+
+- **Two layouts.** `list` puts every agent in a list on the left, with its cost, and shows the selected one in full beside it; `tab` picks the agent. `stacked` gives each agent a full-width panel, top to bottom. The default, `auto`, is stacked for one or two agents and the list for more. `v` switches while aitop runs; Options → Display → Layout (or `layout = "list"`) keeps your choice.
+- **Choose which agents are shown.** Options → Agents has an on/off switch for each one, saved as `[agents]` in the config (`pi = false`). An agent that is off is left out of the panels, the header totals and the activity feed; `aitop report` still includes it.
 
 ### Looks
 

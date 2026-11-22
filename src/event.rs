@@ -11,34 +11,70 @@ use serde::{Deserialize, Serialize};
 pub enum Tool {
     Claude,
     Codex,
-    /// Every agent aitop has no log reader for (Grok, Cursor, Pi, …). Their
-    /// usage comes from T3 Code, as totals; see [`crate::t3`].
+    // The agents below have no log reader in aitop: their usage comes from
+    // T3 Code, as daily totals (see [`crate::t3`]).
+    Grok,
+    Cursor,
+    OpenCode,
+    Antigravity,
+    Pi,
+    Muse,
+    /// An agent T3 Code tracks that this aitop does not know by name.
     Other,
 }
 
 impl Tool {
-    pub const ALL: [Tool; 3] = [Tool::Claude, Tool::Codex, Tool::Other];
+    pub const ALL: [Tool; 9] = [
+        Tool::Claude,
+        Tool::Codex,
+        Tool::Grok,
+        Tool::Cursor,
+        Tool::OpenCode,
+        Tool::Antigravity,
+        Tool::Pi,
+        Tool::Muse,
+        Tool::Other,
+    ];
 
-    pub fn name(self) -> &'static str {
+    pub const fn name(self) -> &'static str {
         match self {
             Tool::Claude => "Claude Code",
             Tool::Codex => "Codex",
+            Tool::Grok => "Grok Build",
+            Tool::Cursor => "Cursor",
+            Tool::OpenCode => "OpenCode",
+            Tool::Antigravity => "Antigravity",
+            Tool::Pi => "Pi",
+            Tool::Muse => "Muse Code",
             Tool::Other => "Other agents",
         }
     }
 
-    pub fn key(self) -> &'static str {
+    /// The name used in the config, on the command line and in history
+    /// records. For all but `Other` it is also what T3 Code calls the agent.
+    pub const fn key(self) -> &'static str {
         match self {
             Tool::Claude => "claude",
             Tool::Codex => "codex",
+            Tool::Grok => "grok",
+            Tool::Cursor => "cursor",
+            Tool::OpenCode => "opencode",
+            Tool::Antigravity => "antigravity",
+            Tool::Pi => "pi",
+            Tool::Muse => "muse",
             Tool::Other => "other",
         }
+    }
+
+    /// The tool T3 Code calls `agent`; one it knows and aitop does not is `Other`.
+    pub fn from_agent(agent: &str) -> Tool {
+        Tool::ALL.into_iter().find(|t| t.key() == agent).unwrap_or(Tool::Other)
     }
 
     /// Whether aitop reads this tool's own logs (and so knows its projects,
     /// sessions and single responses).
     pub fn has_reader(self) -> bool {
-        self != Tool::Other
+        matches!(self, Tool::Claude | Tool::Codex)
     }
 
     /// Whether the tool's subscription is metered in 5-hour windows.
@@ -184,6 +220,15 @@ mod tests {
         a += a;
         assert_eq!(a.total(), 30);
         assert_eq!(a.reasoning, 2);
+    }
+
+    #[test]
+    fn tools() {
+        assert_eq!(Tool::ALL.map(Tool::index), [0, 1, 2, 3, 4, 5, 6, 7, 8], "ALL is in index order");
+        assert_eq!((Tool::from_agent("grok"), Tool::from_agent("pi")), (Tool::Grok, Tool::Pi));
+        assert_eq!(Tool::from_agent("someday"), Tool::Other);
+        assert!(Tool::Codex.has_reader() && !Tool::Cursor.has_reader());
+        assert_eq!(serde_json::to_string(&Tool::OpenCode).unwrap(), "\"opencode\"");
     }
 
     #[test]

@@ -49,6 +49,9 @@ pub struct Summary {
     pub total_cost: f64,
     pub total_tokens: u64,
     pub active_sessions: usize,
+    /// Each tool's whole cost, tokens and active sessions over the range,
+    /// whatever its panel is narrowed to. Indexed by `Tool::index()`.
+    pub whole: Vec<(f64, u64, usize)>,
 }
 
 impl Summary {
@@ -122,13 +125,20 @@ pub fn summarize(
     let tools: Vec<ToolSummary> = Tool::ALL.into_iter().map(|t| summarize_tool(t, &input)).collect();
     // Totals cover everything, whatever the panels are narrowed to.
     let unfiltered = Input { filters: &[], ..input };
+    let mut whole: Vec<(f64, u64, usize)> =
+        Tool::ALL.into_iter().map(|t| (0.0, 0, activity(t, &unfiltered).1)).collect();
+    for e in input.in_range {
+        whole[e.tool.index()].0 += e.cost;
+        whole[e.tool.index()].1 += e.tokens.total();
+    }
     Summary {
         range,
         now: now_ms,
         bucket,
         total_cost: input.in_range.iter().map(|e| e.cost).sum::<f64>() + 0.0,
         total_tokens: input.in_range.iter().map(|e| e.tokens.total()).sum(),
-        active_sessions: Tool::ALL.into_iter().map(|t| activity(t, &unfiltered).1).sum(),
+        active_sessions: whole.iter().map(|w| w.2).sum(),
+        whole,
         buckets: bucket_starts,
         tools,
     }
@@ -282,6 +292,7 @@ mod tests {
         assert_eq!(c.block.as_ref().unwrap().cost, 7.0, "the 5h window ignores filters");
         assert_eq!(s.tool(Tool::Codex).cost, 8.0, "other tools are unaffected");
         assert_eq!(s.total_cost, 15.0, "totals ignore filters");
+        assert_eq!((s.whole[Tool::Claude.index()].0, s.whole[Tool::Codex.index()]), (7.0, (8.0, 15, 1)));
         assert_eq!(s.active_sessions, 4);
         // Narrowing to a machine works the same way.
         events[1].host = i.get("laptop");

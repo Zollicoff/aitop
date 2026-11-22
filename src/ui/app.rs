@@ -13,6 +13,7 @@ use ratatui::widgets::TableState;
 use super::menu::Menu;
 use super::Options;
 use crate::aggregate::{summarize, Filter, Range, Row, Sort, Summary, ToolSummary};
+use crate::appearance::{Choice, Layout};
 use crate::budget::{self, Budget, Level, Period};
 use crate::collector::{Command, RemoteStatus, Shared, T3Status};
 use crate::config::Config;
@@ -36,8 +37,8 @@ impl View {
     /// The tab's name in `tool`'s panel.
     pub fn label(self, tool: Tool) -> &'static str {
         match self {
-            // The shared panel has one row per agent where the others have projects.
-            View::Projects if !tool.has_reader() => "Agents",
+            // The panel for agents without one of their own has a row per agent.
+            View::Projects if tool == Tool::Other => "Agents",
             View::Projects => "Projects",
             View::Models => "Models",
             View::Sessions => "Sessions",
@@ -167,7 +168,13 @@ impl App {
             opts,
             sort: Sort::Cost,
             focus: Tool::ALL[0],
-            panels: Tool::ALL.iter().map(|_| PanelState::default()).collect(),
+            panels: Tool::ALL
+                .iter()
+                .map(|t| match t {
+                    Tool::Claude | Tool::Codex | Tool::Other => PanelState::default(),
+                    _ => PanelState { view: View::Models, ..Default::default() },
+                })
+                .collect(),
             zoom: false,
             help: false,
             menu: None,
@@ -215,7 +222,15 @@ impl App {
             self.summary_key = Some(key);
             self.budgets = budget::evaluate(&d.events, &self.opts.cfg.budget, now);
             // Only real responses: a daily total is not something that just happened.
-            self.feed = d.events.iter().rev().filter(|e| e.rollup.is_none()).take(FEED_LEN).cloned().collect();
+            let agents = &self.opts.cfg.agents;
+            self.feed = d
+                .events
+                .iter()
+                .rev()
+                .filter(|e| e.rollup.is_none() && agents.shown(e.tool))
+                .take(FEED_LEN)
+                .cloned()
+                .collect();
         }
         self.snap = Snapshot {
             status: d.status.clone(),
@@ -259,14 +274,36 @@ impl App {
         self.snap.status.get(t.index()).is_some_and(|s| s.detected())
     }
 
+    /// Whether the dashboard shows `t` (it can be turned off in Options → Agents).
+    pub fn shown(&self, t: Tool) -> bool {
+        self.opts.cfg.agents.shown(t)
+    }
+
+    /// The layout in effect: `auto` is stacked for one or two agents and the list for more.
+    pub fn layout(&self) -> Layout {
+        match self.opts.cfg.layout {
+            Layout::Auto if self.visible().len() > 2 => Layout::List,
+            Layout::Auto => Layout::Stacked,
+            chosen => chosen,
+        }
+    }
+
+    /// Switch between the list and the stacked layout (for this session).
+    pub(super) fn toggle_layout(&mut self) {
+        self.opts.cfg.layout = if self.layout() == Layout::List { Layout::Stacked } else { Layout::List };
+        self.flash(format!("layout: {} · Esc → Options to keep it", self.opts.cfg.layout.name()));
+    }
+
     /// Panels to show, in order.
     pub fn visible(&self) -> Vec<Tool> {
         let shown: Vec<Tool> = Tool::ALL
             .into_iter()
+            .filter(|&t| self.shown(t))
             // A tool aitop cannot read itself is only shown once there is usage of it.
             .filter(|&t| self.has_data(t) || (t.has_reader() && (!self.opts.cfg.hide_missing || self.detected(t))))
             .collect();
         if shown.is_empty() {
+            // Everything is turned off or absent: show the tools aitop reads, so the screen says so.
             Tool::ALL.into_iter().filter(|t| t.has_reader()).collect()
         } else {
             shown
@@ -286,6 +323,8 @@ impl App {
                 View::Machines => self.multi_machine(),
                 // Totals from T3 Code do not say which sessions they were.
                 View::Sessions => tool.has_reader(),
+                // An agent's own panel is all that agent: it starts at its models.
+                View::Projects => tool.has_reader() || tool == Tool::Other,
                 _ => true,
             })
             .collect()

@@ -10,6 +10,7 @@ use ratatui::Frame;
 use super::widgets::{dim, level_color, meter};
 use crate::aggregate::Range;
 use crate::budget;
+use crate::event::Tool;
 use crate::format;
 use crate::theme;
 use crate::ui::app::{App, Hit};
@@ -36,13 +37,15 @@ pub(super) fn draw_header(f: &mut Frame, area: Rect, app: &mut App) {
     }
     if let Some(s) = &app.summary {
         spans.push(Span::styled(" │ ", Style::new().fg(theme::border())));
-        spans.push(Span::styled(format::cost(s.total_cost), theme::value_style()));
-        spans
-            .push(Span::styled(format!(" · {} tokens", format::tokens(s.total_tokens)), Style::new().fg(theme::dim())));
-        if s.active_sessions > 0 {
+        // Of the agents that are shown.
+        let (cost, tokens) = super::agents::shown_total(app, &s.whole);
+        let active: usize = Tool::ALL.into_iter().filter(|t| app.shown(*t)).map(|t| s.whole[t.index()].2).sum();
+        spans.push(Span::styled(format::cost(cost), theme::value_style()));
+        spans.push(Span::styled(format!(" · {} tokens", format::tokens(tokens)), Style::new().fg(theme::dim())));
+        if active > 0 {
             spans.push(Span::styled(" │ ", Style::new().fg(theme::border())));
             spans.push(Span::styled("● ", Style::new().fg(theme::good())));
-            spans.push(Span::styled(format!("{} active", s.active_sessions), Style::new().fg(theme::text())));
+            spans.push(Span::styled(format!("{active} active"), Style::new().fg(theme::text())));
         }
     }
     // The all-tools budget closest to its limit, when there's room for it.

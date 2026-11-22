@@ -211,17 +211,17 @@ fn machines_tab_appears_with_a_second_machine() {
 }
 
 #[test]
-fn other_agents_share_a_panel_once_there_is_usage() {
+fn each_agent_gets_its_own_panel_once_there_is_usage() {
     use crate::event::Rollup;
     let (mut a, data) = app_with("aitop", BudgetConfig::default());
     let out = text(&render(&mut a, 120, 40));
-    assert!(!out.contains("Other agents"), "nothing to show yet: {out}");
+    assert!(!out.contains("Grok Build"), "nothing to show yet: {out}");
     assert_eq!(a.visible(), [Tool::Claude, Tool::Codex]);
 
     {
         let mut d = data.write().unwrap();
         let mut i = Interner::default();
-        let mut e = ev(&mut i, Tool::Other, d.events[0].ts, "t3-agent://grok", "t3:here", 0.2);
+        let mut e = ev(&mut i, Tool::Grok, d.events[0].ts, "t3-agent://grok", "t3:here", 0.2);
         e.project = i.get("Grok Build");
         e.model = i.get("grok-build");
         e.rollup = Some(Rollup { responses: 7, sessions: 3, cost: Some(0.2), unpriced: false });
@@ -229,20 +229,65 @@ fn other_agents_share_a_panel_once_there_is_usage() {
         d.version += 1;
     }
     a.refresh();
-    assert_eq!(a.visible(), [Tool::Claude, Tool::Codex, Tool::Other]);
+    assert_eq!(a.visible(), [Tool::Claude, Tool::Codex, Tool::Grok]);
     let out = text(&render(&mut a, 120, 44));
-    assert!(out.contains("Other agents") && out.contains("Agents") && out.contains("Grok Build"), "{out}");
+    assert!(out.contains("Grok Build") && !out.contains("Other agents"), "{out}");
     assert!(out.contains("$4.45"), "the header total includes it: {out}");
-    // It is the smallest panel, and can be focused and zoomed like the others.
-    a.focus = Tool::Other;
+    // Its panel opens on its models: there are no projects or sessions in T3 Code's totals.
+    a.focus = Tool::Grok;
     a.zoom = true;
     let zoomed = text(&render(&mut a, 120, 30));
-    assert!(zoomed.contains("totals from T3 Code") && zoomed.contains("Agent "), "{zoomed}");
-    // No Sessions tab here (T3 Code does not say which sessions), so an agent opens on its models.
-    assert!(zoomed.contains("Agents   Models") && !zoomed.contains("Models   Sessions"), "{zoomed}");
-    a.on_key(ratatui::crossterm::event::KeyEvent::new(
-        ratatui::crossterm::event::KeyCode::Enter,
-        ratatui::crossterm::event::KeyModifiers::NONE,
-    ));
-    assert_eq!(a.panels[Tool::Other.index()].view, super::app::View::Models);
+    assert!(zoomed.contains("Models") && zoomed.contains("grok-build"), "{zoomed}");
+    assert!(!zoomed.contains("Projects") && !zoomed.contains("Models   Sessions"), "{zoomed}");
+    assert_eq!(a.views(Tool::Grok), [super::app::View::Models]);
+    // An agent this aitop has no name for goes in a panel that lists agents.
+    assert_eq!(a.views(Tool::Other), [super::app::View::Projects, super::app::View::Models]);
+    assert_eq!(super::app::View::Projects.label(Tool::Other), "Agents");
+}
+
+#[test]
+fn list_layout_and_hidden_agents() {
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let key = |c| KeyEvent::new(c, KeyModifiers::NONE);
+    let mut a = app("aitop");
+    // Two agents: stacked, both panels with their tables.
+    assert_eq!(a.layout(), crate::appearance::Layout::Stacked);
+    let stacked = text(&render(&mut a, 120, 40));
+    assert!(
+        !stacked.contains("┤ Agents ├") && stacked.contains("webapp") && stacked.contains("┤ ● Codex ├"),
+        "{stacked}"
+    );
+
+    // `v` switches to the list: every agent on the left, the focused one in full.
+    a.on_key(key(KeyCode::Char('v')));
+    assert_eq!(a.layout(), crate::appearance::Layout::List);
+    let list = text(&render(&mut a, 120, 40));
+    assert!(list.contains("┤ Agents ├") && list.contains("Total"), "{list}");
+    assert!(list.contains("Claude Code") && list.contains("Codex") && list.contains("$0.75"), "{list}");
+    assert!(list.contains("webapp") && !list.contains("┤ ● Codex ├"), "only the focused agent has a panel: {list}");
+    // Tab picks the next agent; clicking a row does too.
+    a.on_key(key(KeyCode::Tab));
+    assert_eq!(a.focus, Tool::Codex);
+    let codex = text(&render(&mut a, 120, 40));
+    assert!(codex.contains("┤ ● Codex ├") && !codex.contains("webapp"), "{codex}");
+    let (rect, _) = *a.hits.iter().find(|(_, h)| matches!(h, super::app::Hit::Panel(Tool::Claude))).unwrap();
+    a.on_mouse(ratatui::crossterm::event::MouseEvent {
+        kind: ratatui::crossterm::event::MouseEventKind::Down(ratatui::crossterm::event::MouseButton::Left),
+        column: rect.x + 2,
+        row: rect.y,
+        modifiers: KeyModifiers::NONE,
+    });
+    assert_eq!(a.focus, Tool::Claude);
+    // A narrow terminal has no room for the list.
+    assert!(!text(&render(&mut a, 60, 40)).contains("┤ Agents ├"));
+
+    // An agent turned off leaves the list, the totals and the feed.
+    a.opts.cfg.agents.set(Tool::Codex, false);
+    a.invalidate();
+    a.refresh();
+    assert_eq!(a.visible(), [Tool::Claude]);
+    a.show_feed = true;
+    let hidden = text(&render(&mut a, 120, 44));
+    assert!(hidden.contains("$3.50 · 30 tokens") && !hidden.contains("Codex"), "{hidden}");
+    assert!(a.feed.iter().all(|e| e.tool == Tool::Claude));
 }

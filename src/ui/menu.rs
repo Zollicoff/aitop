@@ -12,6 +12,7 @@ use crate::aggregate::Range;
 use crate::appearance::Choice;
 use crate::budget::WeekStart;
 use crate::collector::Command;
+use crate::event::Tool;
 use crate::{format, settings, theme};
 
 pub enum Menu {
@@ -30,7 +31,7 @@ pub struct OptionsState {
     pub error: Option<String>,
 }
 
-pub const SECTIONS: [&str; 3] = ["General", "Display", "Budgets"];
+pub const SECTIONS: [&str; 4] = ["General", "Display", "Agents", "Budgets"];
 
 /// Sets a value from typed text; `Err` explains what was wrong.
 type Input = fn(&mut App, &str) -> Result<(), String>;
@@ -89,6 +90,27 @@ fn show_budget(v: Option<f64>) -> String {
 }
 
 const CLOCKS: [&str; 5] = ["%H:%M:%S", "%H:%M", "%I:%M:%S %p", "%I:%M %p", ""];
+
+/// The on/off switch of one agent's panel.
+macro_rules! agent {
+    ($tool:expr) => {
+        Setting {
+            section: 2,
+            name: $tool.name(),
+            help: "Show this agent in the dashboard. One that is off is left out of the panels, the header totals and the activity feed; reports still include it. Agents other than Claude Code and Codex come from T3 Code and appear once they have usage.",
+            key: &["agents", $tool.key()],
+            show: |a| on_off(a.shown($tool)),
+            step: |a, _| {
+                let on = !a.shown($tool);
+                a.opts.cfg.agents.set($tool, on);
+                a.invalidate();
+            },
+            input: None,
+            // Shown is the default, so only "off" is written down.
+            save: |a| (!a.shown($tool)).then(|| false.into()),
+        }
+    };
+}
 
 pub static SETTINGS: &[Setting] = &[
     // General
@@ -169,6 +191,16 @@ pub static SETTINGS: &[Setting] = &[
         save: |a| Some(a.cfg().feed.into()),
     },
     // Display
+    Setting {
+        section: 1,
+        name: "Layout",
+        help: "list: the agents in a list, with the selected one in full beside it. stacked: one full-width panel per agent. auto: stacked for one or two agents, the list for more. `v` switches while aitop runs.",
+        key: &["layout"],
+        show: |a| a.cfg().layout.name().into(),
+        step: |a, d| a.opts.cfg.layout = a.cfg().layout.cycle(d),
+        input: None,
+        save: |a| Some(a.cfg().layout.name().into()),
+    },
     Setting {
         section: 1,
         name: "Theme background",
@@ -254,9 +286,19 @@ pub static SETTINGS: &[Setting] = &[
         input: None,
         save: |a| Some(a.cfg().clock_format.clone().into()),
     },
+    // Agents
+    agent!(Tool::Claude),
+    agent!(Tool::Codex),
+    agent!(Tool::Grok),
+    agent!(Tool::Cursor),
+    agent!(Tool::OpenCode),
+    agent!(Tool::Antigravity),
+    agent!(Tool::Pi),
+    agent!(Tool::Muse),
+    agent!(Tool::Other),
     // Budgets
     Setting {
-        section: 2,
+        section: 3,
         name: "Daily budget",
         help: "Spend limit for today across all tools, in USD. ←/→ steps by $1; enter to type an amount; 0 turns it off.",
         key: &["budget", "daily"],
@@ -273,7 +315,7 @@ pub static SETTINGS: &[Setting] = &[
         save: |a| a.cfg().budget.daily.map(Value::from),
     },
     Setting {
-        section: 2,
+        section: 3,
         name: "Weekly budget",
         help: "Spend limit for this week across all tools. ←/→ steps by $5; enter to type; 0 turns it off.",
         key: &["budget", "weekly"],
@@ -290,7 +332,7 @@ pub static SETTINGS: &[Setting] = &[
         save: |a| a.cfg().budget.weekly.map(Value::from),
     },
     Setting {
-        section: 2,
+        section: 3,
         name: "Monthly budget",
         help: "Spend limit for this month across all tools. ←/→ steps by $10; enter to type; 0 turns it off. Per-tool budgets go under [budget.claude] / [budget.codex] in the config.",
         key: &["budget", "monthly"],
@@ -307,7 +349,7 @@ pub static SETTINGS: &[Setting] = &[
         save: |a| a.cfg().budget.monthly.map(Value::from),
     },
     Setting {
-        section: 2,
+        section: 3,
         name: "Warn at",
         help: "A budget turns amber at this share of its limit.",
         key: &["budget", "warn_at"],
@@ -320,7 +362,7 @@ pub static SETTINGS: &[Setting] = &[
         save: |a| Some(a.cfg().budget.warn_at.into()),
     },
     Setting {
-        section: 2,
+        section: 3,
         name: "Week starts",
         help: "First day of the week for weekly budgets.",
         key: &["budget", "week_starts"],
@@ -344,7 +386,7 @@ pub static SETTINGS: &[Setting] = &[
         },
     },
     Setting {
-        section: 2,
+        section: 3,
         name: "Alert bell",
         help: "Ring the terminal bell when a budget becomes nearly or fully used.",
         key: &["budget", "bell"],
@@ -484,7 +526,7 @@ mod tests {
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
     use super::*;
-    use crate::appearance::{BoxStyle, ChartMetric, GraphColor, GraphSymbol, TrueColor};
+    use crate::appearance::{BoxStyle, ChartMetric, GraphColor, GraphSymbol, Layout, TrueColor};
     use crate::ui::tests::{app, render, text};
 
     fn key(a: &mut App, c: KeyCode) {
@@ -507,8 +549,11 @@ mod tests {
         // General: theme → next theme, saved.
         key(&mut a, KeyCode::Right);
         assert_eq!(a.theme, "catppuccin");
-        // Display section: theme background off, box style double.
+        // Display section: the list layout, theme background off, another box style.
         key(&mut a, KeyCode::Tab);
+        key(&mut a, KeyCode::Right);
+        assert_eq!(a.cfg().layout, Layout::List);
+        key(&mut a, KeyCode::Down);
         key(&mut a, KeyCode::Right);
         assert!(!a.cfg().theme_background);
         assert!(!theme::look().theme_background, "applied live");
@@ -516,6 +561,15 @@ mod tests {
         key(&mut a, KeyCode::Down);
         key(&mut a, KeyCode::Right);
         assert_eq!(a.cfg().box_style, BoxStyle::Plain);
+        // Agents: turn Pi off (the seventh in the list).
+        key(&mut a, KeyCode::Tab);
+        for _ in 0..6 {
+            key(&mut a, KeyCode::Down);
+        }
+        let out = text(&render(&mut a, 120, 40));
+        assert!(out.contains("Agents") && out.contains("Muse Code") && out.contains("Other agents"), "{out}");
+        key(&mut a, KeyCode::Right);
+        assert!(!a.shown(Tool::Pi) && a.shown(Tool::Grok));
         // Budgets: type a daily budget.
         key(&mut a, KeyCode::Tab);
         key(&mut a, KeyCode::Enter);
@@ -534,6 +588,9 @@ mod tests {
         assert!(!cfg.theme_background);
         assert_eq!(cfg.box_style, BoxStyle::Plain);
         assert_eq!(cfg.budget.daily, Some(12.5));
+        assert_eq!(cfg.layout, Layout::List);
+        assert!(!cfg.agents.shown(Tool::Pi) && cfg.agents.shown(Tool::Claude));
+        assert!(saved.contains("[agents]\npi = false"), "{saved}");
 
         // A bad number is reported, not saved.
         key(&mut a, KeyCode::Enter);

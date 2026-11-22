@@ -1,5 +1,6 @@
 //! Rendering. One module per screen region.
 
+mod agents;
 mod chart;
 mod feed;
 mod footer;
@@ -18,6 +19,7 @@ use ratatui::text::Line;
 use ratatui::widgets::{Block, Paragraph};
 use ratatui::Frame;
 
+use agents::draw_agents;
 use feed::draw_feed;
 use footer::draw_footer;
 use header::draw_header;
@@ -65,13 +67,21 @@ fn draw_body(f: &mut Frame, area: Rect, app: &mut App) {
     } else {
         area
     };
+    // The list layout: every agent in a list, the focused one in full beside it.
+    if !app.zoom && app.layout() == crate::appearance::Layout::List && area.width >= 64 {
+        let [list, detail] =
+            Layout::horizontal([Constraint::Length(agents::width(area.width)), Constraint::Fill(1)]).areas(area);
+        draw_agents(f, list, app);
+        draw_panel(f, detail, app, app.focus);
+        return;
+    }
     let constraints: Vec<Constraint> = tools
         .iter()
         .map(|&t| match (app.detected(t) || app.has_data(t), t.has_reader()) {
             (false, _) => Constraint::Length(3),
-            (true, true) => Constraint::Fill(1),
-            // The shared panel is usually small; it gives room to the others.
-            (true, false) if tools.len() > 1 => Constraint::Max(11),
+            // The tools read in detail get three times the room of an agent
+            // known only by its totals.
+            (true, true) => Constraint::Fill(3),
             (true, false) => Constraint::Fill(1),
         })
         .collect();

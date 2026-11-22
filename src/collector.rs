@@ -856,7 +856,7 @@ mod tests {
         let mut c = Collector::new(&cfg, Some(hist.clone()));
         let grok = |host: &str, output: u64| {
             let mut t = day_total(host, "2026-11-15", 2000, output);
-            t.total.tool = Tool::Other;
+            t.total.tool = Tool::Grok;
             t.total.agent = "grok".into();
             t.total.model = "grok-build".into();
             t
@@ -877,10 +877,10 @@ mod tests {
         let seen: Vec<(&str, &str, Tool, u64)> =
             d.events.iter().map(|e| (&*e.host, &*e.project, e.tool, e.tokens.output)).collect();
         // Kept although this machine is read in detail (aitop has no Grok reader), and only once.
-        assert_eq!(seen, [("desk", "Grok Build", Tool::Other, 5), ("Studio", "Grok Build", Tool::Other, 8)]);
+        assert_eq!(seen, [("desk", "Grok Build", Tool::Grok, 5), ("Studio", "Grok Build", Tool::Grok, 8)]);
         assert!(d.events.iter().all(|e| e.cost == 4.5 && e.priced));
         assert_eq!(d.status.len(), Tool::ALL.len());
-        assert!(d.status[Tool::Other.index()].roots.is_empty());
+        assert!(d.status[Tool::Grok.index()].roots.is_empty());
         drop(d);
         // It survives a restart through the history file.
         let mut c2 = Collector::new(&cfg, Some(hist));

@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use serde::Deserialize;
 
-use crate::appearance::{BoxStyle, ChartMetric, GraphColor, GraphSymbol, TrueColor};
+use crate::appearance::{BoxStyle, ChartMetric, GraphColor, GraphSymbol, Layout, TrueColor};
 use crate::budget::BudgetConfig;
 use crate::event::Tool;
 use crate::paths::{config_file, expand};
@@ -40,6 +40,10 @@ pub struct Config {
     pub graph_color: GraphColor,
     /// What the per-tool chart plots.
     pub chart: ChartMetric,
+    /// How the agents are arranged on the screen.
+    pub layout: Layout,
+    /// Which agents the dashboard shows.
+    pub agents: AgentsConfig,
     /// strftime format for the header clock; empty hides it.
     pub clock_format: String,
     /// What to call this machine when several are shown together.
@@ -52,6 +56,31 @@ pub struct Config {
     pub budget: BudgetConfig,
     /// Per-model price overrides in USD per million tokens.
     pub pricing: BTreeMap<String, Price>,
+}
+
+/// The `[agents]` table: `name = false` hides an agent from the dashboard.
+/// One that is not listed is shown.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(transparent)]
+pub struct AgentsConfig(BTreeMap<String, bool>);
+
+impl AgentsConfig {
+    pub fn shown(&self, tool: Tool) -> bool {
+        self.0.get(tool.key()).copied().unwrap_or(true)
+    }
+
+    pub fn set(&mut self, tool: Tool, shown: bool) {
+        if shown {
+            self.0.remove(tool.key());
+        } else {
+            self.0.insert(tool.key().to_string(), false);
+        }
+    }
+
+    /// A name in the table that is no agent's.
+    fn unknown(&self) -> Option<&str> {
+        self.0.keys().map(String::as_str).find(|k| !Tool::ALL.iter().any(|t| t.key() == *k))
+    }
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -77,6 +106,8 @@ impl Default for Config {
             graph_symbol: GraphSymbol::Block,
             graph_color: GraphColor::Accent,
             chart: ChartMetric::Cost,
+            layout: Layout::Auto,
+            agents: AgentsConfig::default(),
             clock_format: "%H:%M:%S".into(),
             host: None,
             remote: Vec::new(),
@@ -99,6 +130,14 @@ impl Config {
                 let invalid = || format!("invalid config file {}", path.display());
                 let cfg: Config = toml::from_str(&text).with_context(invalid)?;
                 crate::remote::resolve(&cfg, &cfg.host_name()).with_context(invalid)?;
+                if let Some(name) = cfg.agents.unknown() {
+                    let known: Vec<&str> = Tool::ALL.iter().map(|t| t.key()).collect();
+                    return Err(anyhow::anyhow!(
+                        "[agents] has no agent called `{name}`; there is: {}",
+                        known.join(", ")
+                    ))
+                    .with_context(invalid);
+                }
                 Ok(cfg)
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound && !explicit => Ok(Config::default()),
@@ -116,7 +155,7 @@ impl Config {
         let v = match tool {
             Tool::Claude => &self.paths.claude,
             Tool::Codex => &self.paths.codex,
-            Tool::Other => return None,
+            _ => return None,
         };
         (!v.is_empty()).then(|| v.iter().map(|p| expand(p)).collect())
     }
@@ -166,6 +205,17 @@ box_style = "rounded"
 graph_symbol = "block"
 graph_color = "accent"
 chart = "cost"
+
+# How the agents are arranged: "list" (a list of the agents beside the
+# selected one in full), "stacked" (one full-width panel each), or "auto"
+# (stacked for one or two agents, the list for more). `v` switches.
+layout = "auto"
+
+# Which agents the dashboard shows. Set one to false to leave it out of the
+# panels, the header totals and the activity feed (reports still include it).
+# The names: claude, codex, grok, cursor, opencode, antigravity, pi, muse, other.
+# [agents]
+# pi = false
 
 # Header clock (strftime format); "" hides it.
 clock_format = "%H:%M:%S"
@@ -238,6 +288,22 @@ mod tests {
     fn pricing_override_parses() {
         let c: Config = toml::from_str("[pricing.\"foo\"]\ninput = 1.0\noutput = 2.0\n").unwrap();
         assert_eq!(c.pricing["foo"].output, 2.0);
+    }
+
+    #[test]
+    fn agents_can_be_hidden() {
+        let c: Config = toml::from_str("layout = \"list\"\n[agents]\npi = false\ngrok = true\n").unwrap();
+        assert_eq!(c.layout, Layout::List);
+        assert!(!c.agents.shown(Tool::Pi) && c.agents.shown(Tool::Grok) && c.agents.shown(Tool::Claude));
+        let mut a = c.agents.clone();
+        a.set(Tool::Pi, true);
+        a.set(Tool::Codex, false);
+        assert!(a.shown(Tool::Pi) && !a.shown(Tool::Codex));
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("config.toml");
+        std::fs::write(&p, "[agents]\ngemini = false\n").unwrap();
+        let err = format!("{:#}", Config::load(Some(&p)).unwrap_err());
+        assert!(err.contains("no agent called `gemini`") && err.contains("antigravity"), "{err}");
     }
 
     #[test]

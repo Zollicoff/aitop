@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- A second layout: the agents in a list with the selected one in full
+  beside it. `layout = "auto" | "list" | "stacked"` (auto: stacked for one
+  or two agents, the list for more), `v` to switch, and Options → Display
+  → Layout.
+- Options → Agents: an on/off switch for each agent, saved as `[agents]`
+  in the config. One that is off is left out of the panels, the header
+  totals and the activity feed.
+
+### Changed
+
+- Each agent T3 Code tracks (Grok Build, Cursor, OpenCode, Antigravity,
+  Pi, Muse Code) has a panel of its own, under its own name, with Models
+  and Machines tabs, instead of sharing "Other agents". That panel remains
+  only for agents this aitop does not know by name. `--tool` takes the new
+  names; records 2.3.0 saved under "other" are filed under their agent.
+- `aitop report` leaves out an agent with no usage in the range.
+
 ## [2.3.0] - 2026-11-21
 
 ### Added

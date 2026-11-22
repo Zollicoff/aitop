@@ -13,7 +13,7 @@ use crate::ui::app::App;
 
 pub(super) fn draw_help(f: &mut Frame, area: Rect, app: &App) {
     let w = area.width.saturating_sub(4).min(78);
-    let h = area.height.saturating_sub(2).min(31 + 2 + app.snap.remotes.len() as u16);
+    let h = area.height.saturating_sub(2).min(33 + 2 + app.snap.remotes.len() as u16);
     let popup = Rect::new(area.x + (area.width - w) / 2, area.y + (area.height - h) / 2, w, h);
     f.render_widget(Clear, popup);
     let dim = theme::dim_style();
@@ -27,7 +27,8 @@ pub(super) fn draw_help(f: &mut Frame, area: Rect, app: &App) {
     let mut lines = vec![
         head("Keys"),
         key("1 2 3 4  [ ]", "range: today · 7 days · 30 days · all time"),
-        key("tab ⇧tab", "focus next / previous tool"),
+        key("tab ⇧tab", "focus next / previous agent"),
+        key("v", "layout: agent list + detail · stacked panels"),
         key("↑ ↓ j k", "select row (PgUp/PgDn, g/G for top/bottom)"),
         key("← → h l", "switch view: projects · models · sessions (p m S)"),
         key("M", "usage per machine, when other machines are synced"),
@@ -39,6 +40,7 @@ pub(super) fn draw_help(f: &mut Frame, area: Rect, app: &App) {
         key("t  T", "next / previous theme"),
         key("r", "rescan logs now"),
         key("esc  o", "menu (Options · Help · Quit) · o / F2 opens Options"),
+        key("", "Options → Agents turns each agent's panel on or off"),
         key("q  ctrl-c", "quit"),
         Line::from(""),
         head("Data"),

@@ -11,8 +11,9 @@
 //!   as a total per tool, model and day. T3 does not share projects or
 //!   sessions, so those machines show less detail than this one;
 //! * **the usage of agents aitop has no reader for** (Grok, Cursor, Pi, …),
-//!   on this machine and the linked ones, as the same kind of totals. They
-//!   share one panel, [`Tool::Other`].
+//!   on this machine and the linked ones, as the same kind of totals. Each
+//!   has its own panel; one this aitop does not know by name goes in
+//!   [`Tool::Other`].
 //!
 //! How it gets in: aitop runs T3's own `t3 auth session issue` to give
 //! itself a read-only session on the local server, kept in
@@ -774,9 +775,8 @@ mod tests {
         totals[1].total.unpriced = totals[1].total.responses;
         let events = events(&machine, &totals, &mut i, true);
         assert_eq!(events.len(), 3);
-        // Grok has no panel of its own: it is a row, named for the agent, in the shared one.
         let grok = &events[2];
-        assert_eq!((grok.tool, &*grok.project, &*grok.project_path), (Tool::Other, "Grok Build", "t3-agent://grok"));
+        assert_eq!((grok.tool, &*grok.project, &*grok.project_path), (Tool::Grok, "Grok Build", "t3-agent://grok"));
         assert_eq!(&*grok.id, "t3:other:studio-pc:grok:grok-build:2026-11-15");
         let here = local_events("desk", &totals[2..], &mut i, true);
         assert_eq!((&*here[0].host, &here[0].id), ("desk", &grok.id), "the same usage however it was reached");

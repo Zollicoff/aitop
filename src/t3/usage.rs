@@ -100,27 +100,12 @@ struct Fingerprint {
     resolved_home_path: String,
 }
 
-/// The panel a T3 provider's usage goes in.
-fn tool(provider: &str) -> Tool {
-    match provider {
-        "claude" => Tool::Claude,
-        "codex" => Tool::Codex,
-        _ => Tool::Other,
-    }
-}
-
-/// What to call an agent T3 knows by `provider`.
-pub fn agent_name(provider: &str) -> &str {
-    match provider {
-        "claude" => "Claude Code",
-        "codex" => "Codex",
-        "grok" => "Grok Build",
-        "cursor" => "Cursor",
-        "opencode" => "OpenCode",
-        "antigravity" => "Antigravity",
-        "pi" => "Pi",
-        "muse" => "Muse Code",
-        other => other,
+/// What to call the agent T3 knows as `agent`: its panel's name, or for an
+/// agent this aitop has no name for, T3's own.
+pub fn agent_name(agent: &str) -> &str {
+    match Tool::from_agent(agent) {
+        Tool::Other => agent,
+        tool => tool.name(),
     }
 }
 
@@ -139,7 +124,7 @@ fn single_host<'a>(mut sources: impl Iterator<Item = &'a Source>) -> Option<Stri
 pub fn parse(summary: &Value) -> Summary {
     let sources: Vec<Source> = each::<RawSource>(&summary["sources"])
         .map(|s| Source {
-            tool: tool(&s.fingerprint.provider),
+            tool: Tool::from_agent(&s.fingerprint.provider),
             agent: s.fingerprint.provider,
             host: s.fingerprint.host_id,
             dir: PathBuf::from(s.fingerprint.resolved_home_path),
@@ -157,7 +142,7 @@ pub fn parse(summary: &Value) -> Summary {
     };
     let mut totals: BTreeMap<(String, String, String, String), Total> = BTreeMap::new();
     for b in each::<Bucket>(&summary["buckets"]) {
-        let tool = tool(&b.provider);
+        let tool = Tool::from_agent(&b.provider);
         let host = b
             .source_path
             .as_deref()
@@ -266,7 +251,7 @@ pub(crate) mod tests {
         let grok = &s.totals[2];
         assert_eq!(
             (grok.tool, grok.agent.as_str(), grok.model.as_str(), grok.responses),
-            (Tool::Other, "grok", "grok-build", 1)
+            (Tool::Grok, "grok", "grok-build", 1)
         );
         assert_eq!((agent_name("grok"), agent_name("pi"), agent_name("someday")), ("Grok Build", "Pi", "someday"));
 
