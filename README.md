@@ -143,7 +143,7 @@ ssh = "macbook"        # a host, ssh alias or user@host
 # every = 60           # seconds between syncs
 ```
 
-Each remote needs aitop installed (a version that has `aitop export`) and has to be reachable with `ssh` without a password prompt. Nothing has to be running on it: every `every` seconds the dashboard runs `aitop export` there, which prints that machine's usage records, and merges them in.
+Each remote needs aitop 2.2 or newer installed and has to be reachable with `ssh` without a password prompt. Nothing has to be running on it: every `every` seconds the dashboard runs `aitop export` there, which prints that machine's usage records, and merges them in.
 
 - **Per machine.** A **Machines** tab (`M`) appears in each panel; Enter drills into one machine's projects, models and sessions. The activity feed gains a machine column, and `aitop report` takes `--by machine` and `--machine NAME`.
 - **Counted once.** Records keep their ids across machines, so a response that two machines can both see (a synced transcript folder, for instance) is counted once, under the machine that had it first. A machine read over ssh is no longer also taken from T3 Code.

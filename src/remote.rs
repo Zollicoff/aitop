@@ -203,7 +203,7 @@ pub fn parse(output: &[u8], interner: &mut Interner, name: &Arc<str>) -> Result<
     let header = lines
         .by_ref()
         .find_map(|l| serde_json::from_str::<Header>(l).ok())
-        .ok_or("no answer from `aitop export` (is an aitop that has `export` installed there?)")?;
+        .ok_or("no answer from `aitop export` (is aitop 2.2 or newer installed there?)")?;
     let events = lines
         .filter_map(|l| store::decode(l, interner, name))
         .map(|mut e| {

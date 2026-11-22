@@ -197,8 +197,8 @@ clock_format = "%H:%M:%S"
 # every = 300              # seconds between reads
 
 # Usage from your other machines. Each one listed here is asked for its
-# usage over ssh (it needs an aitop that has `aitop export`, and ssh access
-# without a password prompt) and shown alongside this machine's. What it reports is
+# usage over ssh (it needs aitop 2.2 or newer, and ssh access without a
+# password prompt) and shown alongside this machine's. What it reports is
 # kept in the local history, so it stays visible while that machine is
 # asleep. A response seen from two machines is only counted once.
 # [[remote]]
