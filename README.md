@@ -4,9 +4,19 @@
 
 Inspired by [btop](https://github.com/aristocratos/btop).
 
-![aitop](docs/screenshot.png)
+![aitop, list layout: the agents on the left, the selected one in full](docs/screenshot.png)
 
-<sub>The list layout. Screenshots are of `scripts/make-demo-home.py` demo data.</sub>
+<sub>The list layout: every agent on the left, the selected one in full.</sub>
+
+![aitop, stacked layout: one panel per agent](docs/stacked.png)
+
+<sub>The stacked layout: one panel per agent. `v` switches between the two.</sub>
+
+![aitop with the Machines tab and the activity feed](docs/machines.png)
+
+<sub>Usage per machine, and the live activity feed.</sub>
+
+<sub>All screenshots are of demo data (`scripts/make-demo-home.py`), made with `scripts/make-screenshots.py`.</sub>
 
 ## Features
 
@@ -213,8 +223,6 @@ cache_read = 0.1
 
 ### Layout and agents
 
-![The stacked layout](docs/stacked.png)
-
 - **Two layouts.** `list` puts every agent in a list on the left, with its cost, and shows the selected one in full beside it; `tab` picks the agent. `stacked` gives each agent a full-width panel, top to bottom. The default, `auto`, is stacked for one or two agents and the list for more. `v` switches while aitop runs; Options → Display → Layout (or `layout = "list"`) keeps your choice.
 - **Choose which agents are shown.** Options → Agents has an on/off switch for each one, saved as `[agents]` in the config (`pi = false`). An agent that is off is left out of the panels, the header totals and the activity feed; `aitop report` still includes it.
 
@@ -225,6 +233,8 @@ cache_read = 0.1
 - **Boxes:** `rounded`, `plain`, `double` or `thick` borders.
 
 ### Themes
+
+![aitop in the Tokyo Night theme, showing Codex](docs/theme.png)
 
 `aitop themes` lists the themes with a colour swatch; pick one with `--theme NAME`, `theme = "NAME"` in the config, or cycle with `t` in the dashboard. Built in: `aitop` (default), `catppuccin`, `dracula`, `gruvbox`, `nord`, `solarized-light`, `terminal` (only your terminal's 16 ANSI colours, so it follows your terminal's scheme) and `tokyo-night`.
 
@@ -300,6 +310,7 @@ cargo test
 cargo clippy --all-targets -- -D warnings
 python3 scripts/make-demo-home.py /tmp/aitop-demo
 HOME=/tmp/aitop-demo T3CODE_HOME=/tmp/aitop-demo/.t3 cargo run
+python3 scripts/make-screenshots.py     # redo docs/*.png (needs pyte and pillow)
 ```
 
 The demo home has logs for Claude Code and Codex, and a history file with what T3 Code would have reported (two other agents and a linked machine), so every panel and layout can be tried without real data. `T3CODE_HOME` keeps a real T3 Code on your machine out of it.
